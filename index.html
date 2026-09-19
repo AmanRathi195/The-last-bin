@@ -68,7 +68,7 @@
             </div>
             <div class="buttons">
               <button class="btn primary" id="start-camera">Start camera</button>
-              <button class="btn secondary" id="start-ocr" disabled>Enable auto weight</button>
+              <button class="btn secondary" id="start-ocr" disabled>Auto weight starts with camera</button>
               <button class="btn secondary" id="stop-camera" disabled>Stop</button>
             </div>
             <details>
@@ -92,8 +92,9 @@
               <canvas class="preview" id="weight-preview" width="360" height="150"></canvas>
               <div>
                 <div class="weight-value"><strong id="weight-number">0</strong><span id="weight-unit">grams</span></div>
-                <p class="ocr-status" id="ocr-status">Enable auto weight after starting the camera.</p>
-                <label class="manual"><input id="manual-weight" type="number" min="0" max="5000" step="1" placeholder="Manual fallback" /><span id="manual-unit">g</span></label>
+                <p class="ocr-status" id="ocr-status">Automatic weight detection will start with the camera.</p>
+                <p class="ocr-status"><strong>Manual override (optional)</strong></p>
+                <label class="manual"><input id="manual-weight" type="number" min="0" max="5000" step="1" placeholder="Enter only if auto detection fails" /><span id="manual-unit">g</span></label>
               </div>
             </div>
           </article>

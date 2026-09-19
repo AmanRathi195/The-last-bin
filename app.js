@@ -248,12 +248,14 @@ window.addEventListener('DOMContentLoaded', async () => {
       e.placeholder.hidden = true;
       e.roi.hidden = false;
       e.stop.disabled = false;
-      e.startOcr.disabled = false;
+      e.startOcr.disabled = true;
+      e.startOcr.textContent = s.ocrReady ? 'Auto weight enabled' : 'Starting auto weight…';
       pill(e.cameraPill, 'Camera live', 'good');
       pill(e.objectPill, 'Waiting');
       system('Scanner active', true);
       result('', '○', 'Scanner ready', 'No object detected', 'Place one object in view and keep it still.');
       requestAnimationFrame(loop);
+      void enableOcr();
     } catch (error) {
       console.error(error);
       const message = error.name === 'NotAllowedError' ? 'Camera permission was blocked. Allow camera access in the browser address bar, then try again.' : error.message;
@@ -356,15 +358,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   function drawCrop() { if (!s.running || !e.video.videoWidth) return; const r = roiValues(); const vw = e.video.videoWidth; const vh = e.video.videoHeight; const sx = vw * r.x / 100; const sy = vh * r.y / 100; const sw = vw * r.w / 100; const sh = vh * r.h / 100; const ctx = e.preview.getContext('2d', { willReadFrequently: true }); ctx.drawImage(e.video, sx, sy, sw, sh, 0, 0, e.preview.width, e.preview.height); const img = ctx.getImageData(0, 0, e.preview.width, e.preview.height); const d = img.data; const threshold = +e.threshold.value; const inv = e.invert.checked; for (let i = 0; i < d.length; i += 4) { const gray = .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2]; let v = gray > threshold ? 255 : 0; if (inv) v = 255 - v; d[i] = d[i + 1] = d[i + 2] = v; } ctx.putImageData(img, 0, 0); }
 
   async function enableOcr() {
-    if (s.ocrReady) return;
-    if (!window.Tesseract) return toast('OCR library did not load. Check the internet connection.');
-    e.startOcr.disabled = true; pill(e.weightPill, 'Loading OCR', 'warn'); e.ocrStatus.textContent = 'Loading digit reader…';
+    if (s.ocrReady) { e.startOcr.disabled = true; e.startOcr.textContent = 'Auto weight enabled'; return; }
+    if (!window.Tesseract) {
+      e.startOcr.disabled = false; e.startOcr.textContent = 'Retry auto weight';
+      pill(e.weightPill, 'OCR unavailable', 'bad');
+      e.ocrStatus.textContent = 'Automatic detection could not load. Use the optional manual override or retry.';
+      toast('OCR library did not load. Check the internet connection.');
+      return;
+    }
+    e.startOcr.disabled = true; e.startOcr.textContent = 'Starting auto weight…'; pill(e.weightPill, 'Loading OCR', 'warn'); e.ocrStatus.textContent = 'Loading digit reader automatically…';
     try {
       s.worker = await Tesseract.createWorker('eng', 1, { logger: (m) => { if (m.status) e.ocrStatus.textContent = m.status + (m.progress ? ` ${Math.round(m.progress * 100)}%` : ''); } });
       await s.worker.setParameters({ tessedit_char_whitelist: '0123456789.', tessedit_pageseg_mode: '7' });
-      s.ocrReady = true; pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; toast('Automatic weight reader is ready.');
+      s.ocrReady = true; e.startOcr.textContent = 'Auto weight enabled'; pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; toast('Automatic weight reader is ready.');
     } catch (error) {
-      console.error(error); pill(e.weightPill, 'OCR error', 'bad'); e.ocrStatus.textContent = 'OCR could not start. Use manual weight.'; e.startOcr.disabled = false;
+      console.error(error); pill(e.weightPill, 'OCR error', 'bad'); e.ocrStatus.textContent = 'Automatic detection failed. Use the optional manual override or retry.'; e.startOcr.disabled = false; e.startOcr.textContent = 'Retry auto weight';
     }
   }
 
