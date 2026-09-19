@@ -14,10 +14,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     authGate: $('auth-gate'), app: $('app-content'), account: $('account'),
     accountName: $('account-name'), accountId: $('account-id'), signOut: $('sign-out'),
     loginTab: $('login-tab'), registerTab: $('register-tab'), loginForm: $('login-form'),
-    registerForm: $('register-form'), loginId: $('login-student-id'), loginPin: $('login-pin'),
-    loginError: $('login-error'), registerId: $('register-student-id'), registerName: $('register-name'),
-    registerEmail: $('register-email'), registerPin: $('register-pin'),
-    registerPinConfirm: $('register-pin-confirm'), registerError: $('register-error'),
+    registerForm: $('register-form'), loginUid: $('login-uid'), loginPassword: $('login-password'),
+    loginError: $('login-error'), registerUid: $('register-uid'), registerName: $('register-name'),
+    registerDepartment: $('register-department'), registerPassword: $('register-password'),
+    registerPasswordConfirm: $('register-password-confirm'), registerError: $('register-error'),
     video: $('video'), stage: $('stage'), placeholder: $('placeholder'), roi: $('roi'),
     start: $('start-camera'), stop: $('stop-camera'), startOcr: $('start-ocr'),
     cameraPill: $('camera-pill'), objectPill: $('object-pill'), objectResult: $('object-result'),
@@ -59,14 +59,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   function toast(text) { e.toast.textContent = text; e.toast.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => e.toast.classList.remove('show'), 3200); }
   function system(text, live = false) { e.systemLabel.textContent = text; e.system.classList.toggle('live', live); }
   function norm(x) { return String(x || '').toLowerCase().replace(/[_-]+/g, ' ').trim(); }
-  function normalizeStudentId(value) { return String(value || '').trim().toUpperCase().replace(/\s+/g, ''); }
+  function normalizeUid(value) { return String(value || '').trim().toUpperCase().replace(/\s+/g, ''); }
   function kind(label) { const v = norm(label); if (/empty|no object|nothing|background|blank/.test(v)) return 'empty'; if (/invalid|other|reject|unknown|extra|not accepted/.test(v)) return 'invalid'; if (/bottle|can|tin|juice|container/.test(v)) return 'bottle'; if (/pen|pencil|stationery|marker/.test(v)) return 'pen'; if (/book|notebook|paper|note|copy/.test(v)) return 'book'; return 'invalid'; }
   function accepted(k) { return ['bottle', 'pen', 'book'].includes(k); }
   function reward(k, w) { if (!accepted(k) || w <= 0) return 0; if (k === 'pen') return 2; if (k === 'bottle') return Math.max(1, Math.round(w / 50)); return Math.max(1, Math.round(w / 100)); }
   function currentWeight() { return s.autoWeight || s.manualWeight || 0; }
 
   async function authEmailForId(value) {
-    const id = normalizeStudentId(value);
+    const id = normalizeUid(value);
     const bytes = new TextEncoder().encode('the-last-bin:' + id);
     const digest = await crypto.subtle.digest('SHA-256', bytes);
     const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -91,28 +91,28 @@ window.addEventListener('DOMContentLoaded', async () => {
     e.registerForm.hidden = login;
     showAuthError(e.loginError);
     showAuthError(e.registerError);
-    setTimeout(() => (login ? e.loginId : e.registerId).focus(), 0);
+    setTimeout(() => (login ? e.loginUid : e.registerUid).focus(), 0);
   }
 
   async function login(event) {
     event.preventDefault();
     showAuthError(e.loginError);
-    const studentId = normalizeStudentId(e.loginId.value);
-    const pin = e.loginPin.value;
-    if (studentId.length < 3 || !/^\d{6}$/.test(pin)) {
-      showAuthError(e.loginError, 'Enter a valid card barcode and six-digit PIN.');
+    const uid = normalizeUid(e.loginUid.value);
+    const password = e.loginPassword.value;
+    if (uid.length < 3 || password.length < 8) {
+      showAuthError(e.loginError, 'Enter a valid UID and password.');
       return;
     }
     setAuthBusy(e.loginForm, true);
     try {
-      const email = await authEmailForId(studentId);
-      const { data, error } = await db.auth.signInWithPassword({ email, password: pin });
+      const email = await authEmailForId(uid);
+      const { data, error } = await db.auth.signInWithPassword({ email, password });
       if (error) throw error;
       await enterApp(data.session);
       e.loginForm.reset();
     } catch (error) {
       console.error(error);
-      showAuthError(e.loginError, 'Card or PIN is incorrect. Check both and try again.');
+      showAuthError(e.loginError, 'UID or password is incorrect. Check both and try again.');
     } finally {
       setAuthBusy(e.loginForm, false);
     }
@@ -121,35 +121,35 @@ window.addEventListener('DOMContentLoaded', async () => {
   async function register(event) {
     event.preventDefault();
     showAuthError(e.registerError);
-    const studentId = normalizeStudentId(e.registerId.value);
+    const uid = normalizeUid(e.registerUid.value);
     const fullName = e.registerName.value.trim();
-    const universityEmail = e.registerEmail.value.trim().toLowerCase();
-    const pin = e.registerPin.value;
-    if (studentId.length < 3 || fullName.length < 2 || !universityEmail.includes('@')) {
-      showAuthError(e.registerError, 'Complete your barcode, name and university email.');
+    const department = e.registerDepartment.value.trim();
+    const password = e.registerPassword.value;
+    if (uid.length < 3 || fullName.length < 2 || department.length < 2) {
+      showAuthError(e.registerError, 'Complete your UID, name and department.');
       return;
     }
-    if (!/^\d{6}$/.test(pin)) {
-      showAuthError(e.registerError, 'Your PIN must contain exactly six numbers.');
+    if (password.length < 8 || password.length > 72) {
+      showAuthError(e.registerError, 'Your password must contain at least eight characters.');
       return;
     }
-    if (pin !== e.registerPinConfirm.value) {
-      showAuthError(e.registerError, 'The two PIN entries do not match.');
+    if (password !== e.registerPasswordConfirm.value) {
+      showAuthError(e.registerError, 'The two password entries do not match.');
       return;
     }
     setAuthBusy(e.registerForm, true);
     try {
       const { data, error } = await db.functions.invoke('register-student', {
-        body: { studentId, fullName, universityEmail, pin }
+        body: { uid, fullName, department, password }
       });
       if (error) {
-        let message = 'Registration failed. This card may already be registered.';
+        let message = 'Registration failed. This UID may already be registered.';
         try { const detail = await error.context?.json(); if (detail?.error) message = detail.error; } catch { /* keep safe message */ }
         throw new Error(message);
       }
       if (!data?.ok) throw new Error(data?.error || 'Registration could not be completed.');
-      const email = await authEmailForId(studentId);
-      const signIn = await db.auth.signInWithPassword({ email, password: pin });
+      const email = await authEmailForId(uid);
+      const signIn = await db.auth.signInWithPassword({ email, password });
       if (signIn.error) throw signIn.error;
       await enterApp(signIn.data.session);
       e.registerForm.reset();
@@ -184,7 +184,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     e.account.hidden = true;
     e.authGate.hidden = false;
     e.accountName.textContent = 'Student';
-    e.accountId.textContent = 'ID card verified';
+    e.accountId.textContent = 'UID verified';
     renderHistory();
     system('Sign in to begin');
     switchAuth('login');
@@ -194,7 +194,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const userId = s.session?.user?.id;
     if (!userId) return;
     const [profileResult, transactionResult] = await Promise.all([
-      db.from('profiles').select('full_name,email,student_id').eq('id', userId).single(),
+      db.from('profiles').select('full_name,student_id,department').eq('id', userId).single(),
       db.from('transactions').select('deposit_id,item_type,item_label,weight_g,confidence,points,status,created_at').order('created_at', { ascending: false }).limit(100)
     ]);
     if (profileResult.error) throw profileResult.error;
@@ -203,7 +203,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     s.transactions = transactionResult.data || [];
     e.accountName.textContent = s.profile.full_name || 'Student';
     const id = String(s.profile.student_id || '');
-    e.accountId.textContent = id ? `Card ••••${id.slice(-4)}` : 'ID card verified';
+    const department = String(s.profile.department || '');
+    e.accountId.textContent = id ? `UID ••••${id.slice(-4)}${department ? ` · ${department}` : ''}` : 'UID verified';
     renderHistory();
   }
 

@@ -33,22 +33,22 @@ Deno.serve(async (request: Request) => {
 
   try {
     const body = await request.json();
-    const studentId = normalizeStudentId(body.studentId);
+    const studentId = normalizeStudentId(body.uid ?? body.studentId);
     const fullName = String(body.fullName ?? "").trim();
-    const universityEmail = String(body.universityEmail ?? "").trim().toLowerCase();
-    const pin = String(body.pin ?? "");
+    const department = String(body.department ?? "").trim();
+    const password = String(body.password ?? body.pin ?? "");
 
     if (!/^[A-Z0-9._:/-]{3,80}$/.test(studentId)) {
-      return json({ error: "Scan a valid ID-card barcode." }, 400);
+      return json({ error: "Enter a valid UID." }, 400);
     }
     if (fullName.length < 2 || fullName.length > 120) {
       return json({ error: "Enter your full name." }, 400);
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(universityEmail) || universityEmail.length > 160) {
-      return json({ error: "Enter a valid university email." }, 400);
+    if (department.length < 2 || department.length > 120) {
+      return json({ error: "Enter your department." }, 400);
     }
-    if (!/^\d{6}$/.test(pin)) {
-      return json({ error: "Create a PIN containing exactly six numbers." }, 400);
+    if (password.length < 8 || password.length > 72) {
+      return json({ error: "Create a password containing at least eight characters." }, 400);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -61,15 +61,15 @@ Deno.serve(async (request: Request) => {
     const email = await authEmailForId(studentId);
     const { data, error } = await admin.auth.admin.createUser({
       email,
-      password: pin,
+      password,
       email_confirm: true,
-      user_metadata: { full_name: fullName, student_id: studentId, university_email: universityEmail },
+      user_metadata: { full_name: fullName, student_id: studentId, department },
     });
 
     if (error) {
       const duplicate = /already|registered|exists/i.test(error.message);
       return json(
-        { error: duplicate ? "This card is already registered. Sign in instead." : "Registration could not be completed." },
+        { error: duplicate ? "This UID is already registered. Sign in instead." : "Registration could not be completed." },
         duplicate ? 409 : 400,
       );
     }
@@ -80,4 +80,3 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Registration service is temporarily unavailable." }, 500);
   }
 });
-

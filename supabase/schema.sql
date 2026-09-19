@@ -5,6 +5,23 @@ alter table public.profiles
   add column if not exists last_seen_at timestamptz;
 
 alter table public.profiles
+  add column if not exists department text;
+
+update public.profiles
+set department = 'Not specified'
+where department is null or trim(department) = '';
+
+alter table public.profiles
+  alter column department set not null;
+
+alter table public.profiles
+  drop constraint if exists profiles_department_check;
+
+alter table public.profiles
+  add constraint profiles_department_check
+  check (char_length(trim(department)) between 2 and 120);
+
+alter table public.profiles
   drop constraint if exists profiles_student_id_check;
 
 alter table public.profiles
@@ -27,12 +44,13 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.profiles (id, email, full_name, student_id)
+  insert into public.profiles (id, email, full_name, student_id, department)
   values (
     new.id,
-    coalesce(nullif(trim(new.raw_user_meta_data ->> 'university_email'), ''), new.email),
+    null,
     coalesce(new.raw_user_meta_data ->> 'full_name', ''),
-    nullif(trim(new.raw_user_meta_data ->> 'student_id'), '')
+    nullif(trim(new.raw_user_meta_data ->> 'student_id'), ''),
+    nullif(trim(new.raw_user_meta_data ->> 'department'), '')
   )
   on conflict (id) do nothing;
   return new;

@@ -4,11 +4,12 @@ The Last Bin is a student exchange-kiosk prototype that combines camera-based ob
 
 ## Student flow
 
-1. Scan the barcode on a university ID card and register a six-digit PIN.
-2. Start the camera and place one accepted object in the scanner area.
-3. Keep it above 85% confidence for three continuous seconds.
-4. Read the weighing-machine display automatically, or enter the weight manually.
-5. Confirm the deposit. Supabase stores it only in that student's history.
+1. Register using a university UID, full name, department, and password.
+2. Sign in later using the same UID and password.
+3. Start the camera and place one accepted object in the scanner area.
+4. Keep it above 85% confidence for three continuous seconds.
+5. Read the weighing-machine display automatically, or enter the weight manually.
+6. Confirm the deposit. Supabase stores it only in that student's history.
 
 Accepted model groups are bottles/cans, pens/pencils, and books/notebooks/paper. Other model classes are rejected as not exchangeable.
 

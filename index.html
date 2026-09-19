@@ -26,29 +26,29 @@
     <header class="top">
       <div class="brand"><span class="mark">♻</span><span>The Last Bin</span></div>
       <div class="status" id="system-status"><b></b><span id="system-label">Checking account…</span></div>
-      <div class="account" id="account" hidden><div class="account-copy"><strong id="account-name">Student</strong><small id="account-id">ID card verified</small></div><button class="btn secondary" id="sign-out">Sign out</button></div>
+      <div class="account" id="account" hidden><div class="account-copy"><strong id="account-name">Student</strong><small id="account-id">UID verified</small></div><button class="btn secondary" id="sign-out">Sign out</button></div>
     </header>
 
     <section class="auth-wrap" id="auth-gate">
       <div class="auth-card">
-        <div class="auth-intro"><h1>Student access</h1><p>Scan the barcode on your university ID card. Your deposits and rewards will be saved only to your account.</p></div>
+        <div class="auth-intro"><h1>Student access</h1><p>Use your university UID and password. Your deposits and rewards will be saved only to your account.</p></div>
         <div class="auth-tabs"><button class="auth-tab active" id="login-tab" type="button">Sign in</button><button class="auth-tab" id="register-tab" type="button">First-time registration</button></div>
         <form class="auth-form" id="login-form">
-          <div class="field"><label for="login-student-id">ID-card barcode</label><input id="login-student-id" autocomplete="username" maxlength="80" required placeholder="Scan card or type the barcode" /></div>
-          <div class="field"><label for="login-pin">Six-digit PIN</label><input id="login-pin" type="password" inputmode="numeric" autocomplete="current-password" pattern="[0-9]{6}" maxlength="6" required placeholder="••••••" /></div>
-          <p class="auth-help">A USB barcode scanner works like a keyboard. Click the barcode box and scan your card.</p>
+          <div class="field"><label for="login-uid">UID</label><input id="login-uid" autocomplete="username" maxlength="80" required placeholder="Enter your university UID" /></div>
+          <div class="field"><label for="login-password">Password</label><input id="login-password" type="password" autocomplete="current-password" minlength="8" maxlength="72" required placeholder="Enter your password" /></div>
+          <p class="auth-help">Use the same UID and password that you created during first-time registration.</p>
           <p class="auth-error" id="login-error" hidden></p>
           <button class="btn auth-submit" type="submit">Sign in and start</button>
         </form>
         <form class="auth-form" id="register-form" hidden>
-          <div class="field"><label for="register-student-id">ID-card barcode</label><input id="register-student-id" autocomplete="username" maxlength="80" required placeholder="Scan card or type the barcode" /></div>
+          <div class="field"><label for="register-uid">UID</label><input id="register-uid" autocomplete="username" maxlength="80" required placeholder="Enter your university UID" /></div>
           <div class="field"><label for="register-name">Full name</label><input id="register-name" autocomplete="name" maxlength="120" required placeholder="Student name" /></div>
-          <div class="field"><label for="register-email">University email</label><input id="register-email" type="email" autocomplete="email" maxlength="160" required placeholder="student@example.edu" /></div>
-          <div class="field"><label for="register-pin">Create a six-digit PIN</label><input id="register-pin" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" maxlength="6" required placeholder="••••••" /></div>
-          <div class="field"><label for="register-pin-confirm">Confirm PIN</label><input id="register-pin-confirm" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" maxlength="6" required placeholder="••••••" /></div>
-          <p class="auth-help">Remember this PIN. It is stored securely by Supabase and is never saved in this webpage.</p>
+          <div class="field"><label for="register-department">Department</label><input id="register-department" maxlength="120" required placeholder="Example: Computer Science" /></div>
+          <div class="field"><label for="register-password">Create password</label><input id="register-password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="At least 8 characters" /></div>
+          <div class="field"><label for="register-password-confirm">Confirm password</label><input id="register-password-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="72" required placeholder="Enter the same password again" /></div>
+          <p class="auth-help">Use at least eight characters. Your password is securely hashed by Supabase and is never saved in this webpage.</p>
           <p class="auth-error" id="register-error" hidden></p>
-          <button class="btn auth-submit" type="submit">Register card and continue</button>
+          <button class="btn auth-submit" type="submit">Create account and continue</button>
         </form>
       </div>
     </section>
