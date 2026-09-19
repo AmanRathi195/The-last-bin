@@ -7,12 +7,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   const MODEL_URL = 'https://teachablemachine.withgoogle.com/models/ntnF1BdqT/';
   const THRESHOLD = 0.85;
   const OBSERVE_MS = 3000;
-  const IDLE_MS = 5 * 60 * 1000;
+  const IDLE_MS = 2 * 60 * 1000;
   const $ = (id) => document.getElementById(id);
 
   const e = {
+    welcome: $('welcome-screen'), beginSession: $('begin-session'), backToWelcome: $('back-to-welcome'),
     authGate: $('auth-gate'), app: $('app-content'), account: $('account'),
     accountName: $('account-name'), accountId: $('account-id'), signOut: $('sign-out'),
+    finishSession: $('finish-session'), headerPoints: $('header-points'),
+    workflowEyebrow: $('workflow-eyebrow'), workflowTitle: $('workflow-title'), workflowHelp: $('workflow-help'),
     loginTab: $('login-tab'), registerTab: $('register-tab'), loginForm: $('login-form'),
     registerForm: $('register-form'), loginUid: $('login-uid'), loginPassword: $('login-password'),
     loginError: $('login-error'), registerUid: $('register-uid'), registerName: $('register-name'),
@@ -26,15 +29,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     preview: $('weight-preview'), weightPill: $('weight-pill'), weightNumber: $('weight-number'),
     weightUnit: $('weight-unit'), ocrStatus: $('ocr-status'), manual: $('manual-weight'),
     manualUnit: $('manual-unit'), reviewObject: $('review-object'), reviewWeight: $('review-weight'),
-    reviewReward: $('review-reward'), depositPill: $('deposit-pill'), confirm: $('confirm'),
+    reviewReward: $('review-reward'), reviewCompartment: $('review-compartment'), depositPill: $('deposit-pill'), confirm: $('confirm'),
     clear: $('clear'), history: $('history'), weightLedger: $('weight-ledger'), download: $('download'),
-    statItems: $('stat-items'), statPoints: $('stat-points'), system: $('system-status'),
+    accountHistory: $('account-history'), statItems: $('stat-items'), statPoints: $('stat-points'),
+    sessionWeight: $('session-weight'), receiptPoints: $('receipt-points'), system: $('system-status'),
     systemLabel: $('system-label'), toast: $('toast'), x: $('roi-x'), y: $('roi-y'),
     w: $('roi-w'), h: $('roi-h'), threshold: $('threshold'), invert: $('invert'), unit: $('unit')
   };
 
   const s = {
-    session: null, profile: null, transactions: [], idleTimer: null,
+    session: null, profile: null, transactions: [], sessionTransactions: [], idleTimer: null, phase: 'scan',
     stream: null, model: null, running: false, predicting: false, lastPrediction: 0,
     candidate: '', startedAt: 0, elapsed: 0, approved: null, pendingDepositId: null,
     awaitingRemoval: false, removalStartedAt: 0, emptyFrames: 0,
@@ -50,7 +54,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false }
   });
 
   function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
@@ -64,6 +68,30 @@ window.addEventListener('DOMContentLoaded', async () => {
   function accepted(k) { return ['bottle', 'pen', 'book'].includes(k); }
   function reward(k, w) { if (!accepted(k) || w <= 0) return 0; if (k === 'pen') return 2; if (k === 'bottle') return Math.max(1, Math.round(w / 50)); return Math.max(1, Math.round(w / 100)); }
   function currentWeight() { return s.autoWeight || s.manualWeight || 0; }
+  function categoryName(k) { return ({ bottle: 'Bottles & cans', pen: 'Pens & pencils', book: 'Books & paper' })[k] || 'Other'; }
+  function compartmentFor(k) { return ({ bottle: 'Bottle & can compartment', pen: 'Stationery compartment', book: 'Book & paper compartment' })[k] || 'Waiting for an approved object'; }
+  function weightIssue(k, w) {
+    if (!w) return '';
+    const ranges = { bottle: [5, 3000], pen: [1, 1000], book: [10, 5000] };
+    const range = ranges[k];
+    if (!range || (w >= range[0] && w <= range[1])) return '';
+    return `Weight looks unusual for ${categoryName(k).toLowerCase()}. Reposition the scale display or use the manual fallback.`;
+  }
+
+  function setPhase(phase, title, help) {
+    const defaults = {
+      scan: ['Step 1 of 4', 'Start the scanner', 'Place one accepted object and its weighing scale inside the camera view.'],
+      identify: ['Step 2 of 4', 'Keep one object still', 'The same valid category must stay above 85% confidence for three seconds.'],
+      weigh: ['Step 3 of 4', 'Reading the object weight', 'Keep the scale display inside the yellow box until a stable weight is captured.'],
+      deposit: ['Step 4 of 4', 'Review and confirm', 'Check the object, weight and reward, then place it in the shown compartment.']
+    };
+    const copy = defaults[phase] || defaults.scan;
+    s.phase = phase;
+    e.workflowEyebrow.textContent = copy[0];
+    e.workflowTitle.textContent = title || copy[1];
+    e.workflowHelp.textContent = help || copy[2];
+    document.querySelectorAll('.step-dot').forEach((node) => node.classList.toggle('active', node.dataset.step === phase));
+  }
 
   async function authEmailForId(value) {
     const id = normalizeUid(value);
@@ -92,6 +120,24 @@ window.addEventListener('DOMContentLoaded', async () => {
     showAuthError(e.loginError);
     showAuthError(e.registerError);
     setTimeout(() => (login ? e.loginUid : e.registerUid).focus(), 0);
+  }
+
+  function showWelcome() {
+    e.welcome.hidden = false;
+    e.authGate.hidden = true;
+    e.app.hidden = true;
+    e.account.hidden = true;
+    e.loginForm.reset();
+    e.registerForm.reset();
+    showAuthError(e.loginError);
+    showAuthError(e.registerError);
+  }
+
+  function openAccess() {
+    e.welcome.hidden = true;
+    e.app.hidden = true;
+    e.authGate.hidden = false;
+    switchAuth('login');
   }
 
   async function login(event) {
@@ -165,29 +211,32 @@ window.addEventListener('DOMContentLoaded', async () => {
   async function enterApp(session) {
     if (!session) return leaveApp();
     s.session = session;
+    s.sessionTransactions = [];
+    e.welcome.hidden = true;
     e.authGate.hidden = true;
     e.app.hidden = false;
     e.account.hidden = false;
     system('Loading your account…');
     await loadStudentData();
+    clearScan(false);
+    setPhase('scan');
     resetIdleTimer();
     system('Ready to start');
   }
 
   function leaveApp() {
+    clearTimeout(s.idleTimer);
+    if (s.running) stopCamera();
     s.session = null;
     s.profile = null;
     s.transactions = [];
-    clearTimeout(s.idleTimer);
-    if (s.running) stopCamera();
-    e.app.hidden = true;
-    e.account.hidden = true;
-    e.authGate.hidden = false;
+    s.sessionTransactions = [];
     e.accountName.textContent = 'Student';
     e.accountId.textContent = 'UID verified';
     renderHistory();
-    system('Sign in to begin');
+    system('Touch start to begin');
     switchAuth('login');
+    showWelcome();
   }
 
   async function loadStudentData() {
@@ -212,7 +261,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!s.session) return;
     clearTimeout(s.idleTimer);
     s.idleTimer = setTimeout(async () => {
-      toast('Signed out after five minutes of inactivity.');
+      toast('Session ended after two minutes of inactivity.');
       await db.auth.signOut();
       leaveApp();
     }, IDLE_MS);
@@ -235,6 +284,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   async function startCamera() {
     if (!s.session) return toast('Sign in before starting the scanner.');
+    if (s.running) return;
     e.start.disabled = true;
     try {
       if (!window.tmImage) throw Error('AI library did not load. Check the internet connection.');
@@ -253,6 +303,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       pill(e.cameraPill, 'Camera live', 'good');
       pill(e.objectPill, 'Waiting');
       system('Scanner active', true);
+      setPhase('identify');
       result('', '○', 'Scanner ready', 'No object detected', 'Place one object in view and keep it still.');
       requestAnimationFrame(loop);
       void enableOcr();
@@ -261,6 +312,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       const message = error.name === 'NotAllowedError' ? 'Camera permission was blocked. Allow camera access in the browser address bar, then try again.' : error.message;
       pill(e.cameraPill, 'Camera error', 'bad');
       result('bad', '!', 'Unable to start', 'Camera or model error', message);
+      setPhase('scan', 'Camera needs attention', message);
       toast(message);
       e.start.disabled = false;
     }
@@ -312,6 +364,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         result('', '○', 'Scanner ready', 'No object detected', 'Place one object in view and keep it still.');
         if (s.ocrReady) e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.';
         system('Scanner active', true);
+        setPhase('identify');
       }
       return;
     }
@@ -319,11 +372,13 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (top.probability < THRESHOLD) {
       resetObservation(); pill(e.objectPill, 'Searching', 'warn');
       result('warn', '…', 'Watching camera', 'Keep object steady', 'The timer starts only above 85% confidence.');
+      setPhase('identify');
       return;
     }
     if (k === 'empty') {
       resetObservation(); pill(e.objectPill, 'Waiting');
       result('', '○', 'Scanner ready', 'No object detected', 'Place one exchange object in view.');
+      setPhase('identify');
       return;
     }
     if (s.candidate !== top.className) { s.candidate = top.className; s.startedAt = now; s.elapsed = 0; }
@@ -332,6 +387,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (s.elapsed < OBSERVE_MS) {
       pill(e.objectPill, 'Observing', 'warn');
       result('', '⌛', 'Observing object', 'Checking eligibility…', 'Keep the same object still for ' + ((OBSERVE_MS - s.elapsed) / 1000).toFixed(1) + ' more seconds.');
+      setPhase('identify');
       return;
     }
     s.approved = { label: top.className, kind: k, confidence: top.probability };
@@ -339,12 +395,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     updateTimer(OBSERVE_MS);
     if (accepted(k)) {
       pill(e.objectPill, 'Approved', 'good');
-      result('good', '✓', 'The object to exchange is:', top.className, 'Approved after three continuous seconds.');
+      result('good', '✓', 'The object to exchange is:', top.className, `Approved. Use the ${compartmentFor(k).toLowerCase()} after confirmation.`);
+      e.reviewCompartment.textContent = compartmentFor(k);
+      setPhase('weigh');
       toast(top.className + ' approved.');
       if (!s.ocrReady) e.ocrStatus.textContent = 'Object approved. Enable auto weight to read the display.';
     } else {
       pill(e.objectPill, 'Rejected', 'bad');
-      result('bad', '×', 'Result', 'Object not exchangeable', 'Clear it and scan another object.');
+      result('bad', '×', 'Result', 'Object not exchangeable', 'Accepted here: books/paper, bottles/cans, and pens/pencils. Remove this item to continue.');
+      e.reviewCompartment.textContent = 'No compartment opened';
+      setPhase('identify', 'Remove the unsupported object', 'This station accepts only books/paper, bottles/cans, and pens/pencils.');
       toast('Object not exchangeable.');
     }
     updateReview();
@@ -400,23 +460,25 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   function updateReview() {
-    const ok = s.approved && accepted(s.approved.kind); const w = currentWeight(); const ready = ok && w > 0; const points = ready ? reward(s.approved.kind, w) : 0;
+    const ok = s.approved && accepted(s.approved.kind); const w = currentWeight(); const issue = ok ? weightIssue(s.approved.kind, w) : ''; const ready = ok && w > 0 && !issue; const points = ready ? reward(s.approved.kind, w) : 0;
     e.reviewObject.textContent = s.approved ? (ok ? s.approved.label : 'Object not exchangeable') : 'Not approved';
-    e.reviewWeight.textContent = w ? displayWeight(w) : '—';
+    e.reviewWeight.textContent = w ? (issue ? `${displayWeight(w)} · recheck` : displayWeight(w)) : '—';
     e.reviewReward.textContent = ready ? points + ' point' + (points === 1 ? '' : 's') : '— points';
+    e.reviewCompartment.textContent = ok ? compartmentFor(s.approved.kind) : (s.approved ? 'No compartment opened' : 'Waiting for an approved object');
     e.confirm.disabled = !ready;
     if (s.approved && !ok) pill(e.depositPill, 'Rejected', 'bad');
-    else if (ready) pill(e.depositPill, 'Ready', 'good');
+    else if (issue) { pill(e.depositPill, 'Recheck weight', 'bad'); setPhase('weigh', 'Check the weight reading', issue); }
+    else if (ready) { pill(e.depositPill, 'Ready', 'good'); setPhase('deposit'); }
     else if (ok) pill(e.depositPill, 'Add weight', 'warn');
     else pill(e.depositPill, 'Not ready');
   }
 
   function clearScan(showToast = true) {
-    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = false; s.removalStartedAt = 0; s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Waiting'); pill(e.depositPill, 'Not ready'); result('', '○', s.running ? 'Scanner ready' : 'Waiting for scanner', s.running ? 'No object detected' : 'No object approved', s.running ? 'Place one object in view and keep it still.' : 'Start the camera first.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; } updateReview(); if (showToast) toast('Ready for the next object.');
+    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = false; s.removalStartedAt = 0; s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Waiting'); pill(e.depositPill, 'Not ready'); e.reviewCompartment.textContent = 'Waiting for an approved object'; result('', '○', s.running ? 'Scanner ready' : 'Waiting for scanner', s.running ? 'No object detected' : 'No object approved', s.running ? 'Place one object in view and keep it still.' : 'Start the camera first.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; } updateReview(); setPhase(s.running ? 'identify' : 'scan'); if (showToast) toast('Ready for the next object.');
   }
 
   function resetAfterDeposit() {
-    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = true; s.removalStartedAt = performance.now(); s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Remove item', 'warn'); pill(e.depositPill, 'Not ready'); result('', '↺', 'Deposit recorded', 'Remove the deposited object', 'The scanner will restart automatically when the tray is clear.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for the deposited object to be removed.'; } updateReview(); system('Waiting for item removal', true);
+    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = true; s.removalStartedAt = performance.now(); s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Remove item', 'warn'); pill(e.depositPill, 'Not ready'); result('', '↺', 'Deposit recorded', 'Remove the deposited object', 'The scanner will restart automatically when the tray is clear.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for the deposited object to be removed.'; } updateReview(); e.reviewCompartment.textContent = 'Deposit recorded'; setPhase('scan', 'Remove the deposited object', 'Your receipt is updated. Clear the tray to scan another item, or finish the session.'); system('Waiting for item removal', true);
   }
 
   async function confirmDeposit() {
@@ -437,6 +499,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (error) throw error;
       s.transactions.unshift(data);
       s.transactions = s.transactions.slice(0, 100);
+      s.sessionTransactions.unshift(data);
       renderHistory();
       toast(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${data.points} points.`);
       resetAfterDeposit();
@@ -453,38 +516,72 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderHistory() {
-    e.history.innerHTML = ''; e.weightLedger.innerHTML = '';
-    let totalPoints = 0;
-    s.transactions.forEach((transaction) => {
-      totalPoints += +transaction.points || 0;
+    e.history.innerHTML = ''; e.weightLedger.innerHTML = ''; e.accountHistory.innerHTML = '';
+    const lifetimePoints = s.transactions.reduce((sum, transaction) => sum + (+transaction.points || 0), 0);
+    const sessionPoints = s.sessionTransactions.reduce((sum, transaction) => sum + (+transaction.points || 0), 0);
+    const sessionWeight = s.sessionTransactions.reduce((sum, transaction) => sum + (+transaction.weight_g || 0), 0);
+
+    s.sessionTransactions.forEach((transaction) => {
       const row = document.createElement('tr');
-      [new Date(transaction.created_at).toLocaleString(), transaction.item_label, displayWeight(transaction.weight_g), pct(transaction.confidence), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      [transaction.item_label, displayWeight(transaction.weight_g), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
       e.history.appendChild(row);
-      const mini = document.createElement('tr');
-      [transaction.item_label, displayWeight(transaction.weight_g)].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; mini.appendChild(cell); });
-      e.weightLedger.appendChild(mini);
+    });
+    if (!s.sessionTransactions.length) {
+      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 3; cell.className = 'empty'; cell.textContent = 'No items in this session'; row.appendChild(cell); e.history.appendChild(row);
+    }
+
+    const weightByType = new Map();
+    s.transactions.forEach((transaction) => weightByType.set(transaction.item_type, (weightByType.get(transaction.item_type) || 0) + (+transaction.weight_g || 0)));
+    ['book', 'bottle', 'pen'].forEach((type) => {
+      const row = document.createElement('tr');
+      [categoryName(type), displayWeight(weightByType.get(type) || 0)].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      e.weightLedger.appendChild(row);
+    });
+
+    s.transactions.forEach((transaction) => {
+      const row = document.createElement('tr');
+      [new Date(transaction.created_at).toLocaleDateString(), transaction.item_label, displayWeight(transaction.weight_g), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      e.accountHistory.appendChild(row);
     });
     if (!s.transactions.length) {
-      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 5; cell.className = 'empty'; cell.textContent = s.session ? 'No deposits recorded for this student yet.' : 'Sign in to view your transaction history.'; row.appendChild(cell); e.history.appendChild(row);
-      const mini = document.createElement('tr'); const miniCell = document.createElement('td'); miniCell.colSpan = 2; miniCell.className = 'mini-empty'; miniCell.textContent = 'No records yet'; mini.appendChild(miniCell); e.weightLedger.appendChild(mini);
+      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 4; cell.className = 'mini-empty'; cell.textContent = s.session ? 'No previous deposits' : 'Sign in to view account history'; row.appendChild(cell); e.accountHistory.appendChild(row);
     }
-    e.statItems.textContent = s.transactions.length;
-    e.statPoints.textContent = totalPoints;
-    e.download.disabled = !s.transactions.length;
+
+    e.statItems.textContent = s.sessionTransactions.length;
+    e.statPoints.textContent = sessionPoints;
+    e.receiptPoints.textContent = sessionPoints;
+    e.sessionWeight.textContent = displayWeight(sessionWeight);
+    e.headerPoints.textContent = lifetimePoints;
+    e.download.disabled = !s.sessionTransactions.length;
   }
 
   function downloadCsv() {
     const esc = (value) => '"' + String(value).replace(/"/g, '""') + '"';
-    const rows = [['time', 'deposit_id', 'object', 'weight_g', 'confidence_percent', 'points'], ...s.transactions.map((transaction) => [transaction.created_at, transaction.deposit_id, transaction.item_label, transaction.weight_g, Math.round(transaction.confidence * 100), transaction.points])];
+    const rows = [['time', 'deposit_id', 'object', 'weight_g', 'confidence_percent', 'points'], ...s.sessionTransactions.map((transaction) => [transaction.created_at, transaction.deposit_id, transaction.item_label, transaction.weight_g, Math.round(transaction.confidence * 100), transaction.points])];
     const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(esc).join(',')).join('\n')], { type: 'text/csv' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'the-last-bin-my-transactions.csv'; anchor.click(); URL.revokeObjectURL(url);
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'the-last-bin-session-receipt.csv'; anchor.click(); URL.revokeObjectURL(url);
   }
 
+  async function endSession(message = 'Session finished. Your account is safely signed out.') {
+    e.signOut.disabled = true;
+    e.finishSession.disabled = true;
+    try { await db.auth.signOut(); }
+    finally {
+      leaveApp();
+      e.signOut.disabled = false;
+      e.finishSession.disabled = false;
+      toast(message);
+    }
+  }
+
+  e.beginSession.addEventListener('click', openAccess);
+  e.backToWelcome.addEventListener('click', showWelcome);
   e.loginTab.addEventListener('click', () => switchAuth('login'));
   e.registerTab.addEventListener('click', () => switchAuth('register'));
   e.loginForm.addEventListener('submit', login);
   e.registerForm.addEventListener('submit', register);
-  e.signOut.addEventListener('click', async () => { await db.auth.signOut(); leaveApp(); toast('Signed out safely.'); });
+  e.signOut.addEventListener('click', () => endSession());
+  e.finishSession.addEventListener('click', () => endSession());
   ['pointerdown', 'keydown', 'touchstart'].forEach((name) => document.addEventListener(name, resetIdleTimer, { passive: true }));
   [e.x, e.y, e.w, e.h, e.threshold, e.invert].forEach((el) => el.addEventListener('input', updateRoi));
   e.unit.addEventListener('change', syncUnitUi);

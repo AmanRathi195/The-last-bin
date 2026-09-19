@@ -1,17 +1,21 @@
 # The Last Bin
 
-The Last Bin is a student exchange-kiosk prototype that combines camera-based object recognition, weighing-machine display OCR, and private student accounts.
+The Last Bin is a university-installed exchange-kiosk prototype that combines camera-based object recognition, weighing-machine display OCR, private student accounts, and a checkout-style deposit receipt.
 
 ## Student flow
 
-1. Register using a university UID, full name, department, and password.
-2. Sign in later using the same UID and password.
-3. Start the camera and place one accepted object in the scanner area.
-4. Keep it above 85% confidence for three continuous seconds.
-5. The weighing-machine display is read automatically when the camera starts; manual weight entry remains an optional fallback.
-6. Confirm the deposit. Supabase stores it only in that student's history.
+1. Touch the attract screen and scan or enter a university UID.
+2. Register the first time with UID, full name, department, and password; later visits need only UID and password.
+3. Start the scanner and place one accepted object with the scale display visible.
+4. Keep the same category above 85% confidence for three continuous seconds.
+5. The scale display is read automatically. The yellow OCR box is movable and manual entry stays behind an optional fallback.
+6. Review the object, weight, estimated reward, and indicated collection compartment.
+7. Confirm the deposit. Supabase stores it only in that student's history and the current-session receipt updates immediately.
+8. Finish the session to sign out. The kiosk also signs out after two minutes of inactivity, and browser sessions are not persisted across refreshes.
 
 Accepted model groups are bottles/cans, pens/pencils, and books/notebooks/paper. Other model classes are rejected as not exchangeable.
+
+The student screen shows only the active workflow and current-session receipt. Lifetime object-weight totals and prior transactions are collapsed by default; OCR calibration is placed in a separate staff setup section. A broad object/weight consistency check blocks obviously implausible readings before confirmation.
 
 ## Architecture
 
@@ -29,6 +33,10 @@ The Supabase publishable key in `app.js` is intentionally public. Access is prot
 - Book, notebook, or paper: approximately 1 point per 100 g
 
 Replace this placeholder after the final reward table is approved.
+
+## Prototype boundary
+
+The software can identify categories, read the scale display, save deposits, and tell the student which labelled compartment to use. Motorized doors, door sensors, fill-level sensors, physical deposit verification, and automatic scale tare require hardware integration and are not simulated as completed features.
 
 ## Safe sharing
 
