@@ -1,0 +1,505 @@
+window.addEventListener('DOMContentLoaded', async () => {
+  'use strict';
+
+  const SUPABASE_URL = 'https://pkueqeuekzgflllcqbpn.supabase.co';
+  // Publishable browser key: safe to expose. Database access is protected by RLS.
+  const SUPABASE_KEY = 'sb_publishable_CH9djxKRhyteSI6uDCieww_UXnSCzyX';
+  const MODEL_URL = 'https://teachablemachine.withgoogle.com/models/ntnF1BdqT/';
+  const THRESHOLD = 0.85;
+  const OBSERVE_MS = 3000;
+  const IDLE_MS = 5 * 60 * 1000;
+  const $ = (id) => document.getElementById(id);
+
+  const e = {
+    authGate: $('auth-gate'), app: $('app-content'), account: $('account'),
+    accountName: $('account-name'), accountId: $('account-id'), signOut: $('sign-out'),
+    loginTab: $('login-tab'), registerTab: $('register-tab'), loginForm: $('login-form'),
+    registerForm: $('register-form'), loginId: $('login-student-id'), loginPin: $('login-pin'),
+    loginError: $('login-error'), registerId: $('register-student-id'), registerName: $('register-name'),
+    registerEmail: $('register-email'), registerPin: $('register-pin'),
+    registerPinConfirm: $('register-pin-confirm'), registerError: $('register-error'),
+    video: $('video'), stage: $('stage'), placeholder: $('placeholder'), roi: $('roi'),
+    start: $('start-camera'), stop: $('stop-camera'), startOcr: $('start-ocr'),
+    cameraPill: $('camera-pill'), objectPill: $('object-pill'), objectResult: $('object-result'),
+    objectIcon: $('object-icon'), objectOverline: $('object-overline'), objectName: $('object-name'),
+    objectHelp: $('object-help'), timer: $('timer-label'), timerBar: $('timer-bar'),
+    preview: $('weight-preview'), weightPill: $('weight-pill'), weightNumber: $('weight-number'),
+    weightUnit: $('weight-unit'), ocrStatus: $('ocr-status'), manual: $('manual-weight'),
+    manualUnit: $('manual-unit'), reviewObject: $('review-object'), reviewWeight: $('review-weight'),
+    reviewReward: $('review-reward'), depositPill: $('deposit-pill'), confirm: $('confirm'),
+    clear: $('clear'), history: $('history'), weightLedger: $('weight-ledger'), download: $('download'),
+    statItems: $('stat-items'), statPoints: $('stat-points'), system: $('system-status'),
+    systemLabel: $('system-label'), toast: $('toast'), x: $('roi-x'), y: $('roi-y'),
+    w: $('roi-w'), h: $('roi-h'), threshold: $('threshold'), invert: $('invert'), unit: $('unit')
+  };
+
+  const s = {
+    session: null, profile: null, transactions: [], idleTimer: null,
+    stream: null, model: null, running: false, predicting: false, lastPrediction: 0,
+    candidate: '', startedAt: 0, elapsed: 0, approved: null, pendingDepositId: null,
+    awaitingRemoval: false, removalStartedAt: 0, emptyFrames: 0,
+    worker: null, ocrReady: false, ocrBusy: false, lastOcr: 0, ocrReadings: [],
+    autoWeight: 0, manualWeight: 0
+  };
+  let roiDrag = null;
+
+  if (!window.supabase?.createClient) {
+    showAuthError(e.loginError, 'Account service did not load. Check the internet connection and refresh.');
+    system('Account service unavailable');
+    return;
+  }
+
+  const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+  });
+
+  function clamp(v, a, b) { return Math.min(b, Math.max(a, v)); }
+  function pct(v) { return Math.round((+v || 0) * 100) + '%'; }
+  function pill(el, text, tone = '') { el.textContent = text; el.className = 'pill' + (tone ? ' ' + tone : ''); }
+  function toast(text) { e.toast.textContent = text; e.toast.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => e.toast.classList.remove('show'), 3200); }
+  function system(text, live = false) { e.systemLabel.textContent = text; e.system.classList.toggle('live', live); }
+  function norm(x) { return String(x || '').toLowerCase().replace(/[_-]+/g, ' ').trim(); }
+  function normalizeStudentId(value) { return String(value || '').trim().toUpperCase().replace(/\s+/g, ''); }
+  function kind(label) { const v = norm(label); if (/empty|no object|nothing|background|blank/.test(v)) return 'empty'; if (/invalid|other|reject|unknown|extra|not accepted/.test(v)) return 'invalid'; if (/bottle|can|tin|juice|container/.test(v)) return 'bottle'; if (/pen|pencil|stationery|marker/.test(v)) return 'pen'; if (/book|notebook|paper|note|copy/.test(v)) return 'book'; return 'invalid'; }
+  function accepted(k) { return ['bottle', 'pen', 'book'].includes(k); }
+  function reward(k, w) { if (!accepted(k) || w <= 0) return 0; if (k === 'pen') return 2; if (k === 'bottle') return Math.max(1, Math.round(w / 50)); return Math.max(1, Math.round(w / 100)); }
+  function currentWeight() { return s.autoWeight || s.manualWeight || 0; }
+
+  async function authEmailForId(value) {
+    const id = normalizeStudentId(value);
+    const bytes = new TextEncoder().encode('the-last-bin:' + id);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `student-${hex.slice(0, 48)}@accounts.thelastbin.app`;
+  }
+
+  function showAuthError(el, message = '') {
+    el.textContent = message;
+    el.hidden = !message;
+  }
+
+  function setAuthBusy(form, busy) {
+    form.classList.toggle('auth-busy', busy);
+    [...form.elements].forEach((el) => { el.disabled = busy; });
+  }
+
+  function switchAuth(mode) {
+    const login = mode === 'login';
+    e.loginTab.classList.toggle('active', login);
+    e.registerTab.classList.toggle('active', !login);
+    e.loginForm.hidden = !login;
+    e.registerForm.hidden = login;
+    showAuthError(e.loginError);
+    showAuthError(e.registerError);
+    setTimeout(() => (login ? e.loginId : e.registerId).focus(), 0);
+  }
+
+  async function login(event) {
+    event.preventDefault();
+    showAuthError(e.loginError);
+    const studentId = normalizeStudentId(e.loginId.value);
+    const pin = e.loginPin.value;
+    if (studentId.length < 3 || !/^\d{6}$/.test(pin)) {
+      showAuthError(e.loginError, 'Enter a valid card barcode and six-digit PIN.');
+      return;
+    }
+    setAuthBusy(e.loginForm, true);
+    try {
+      const email = await authEmailForId(studentId);
+      const { data, error } = await db.auth.signInWithPassword({ email, password: pin });
+      if (error) throw error;
+      await enterApp(data.session);
+      e.loginForm.reset();
+    } catch (error) {
+      console.error(error);
+      showAuthError(e.loginError, 'Card or PIN is incorrect. Check both and try again.');
+    } finally {
+      setAuthBusy(e.loginForm, false);
+    }
+  }
+
+  async function register(event) {
+    event.preventDefault();
+    showAuthError(e.registerError);
+    const studentId = normalizeStudentId(e.registerId.value);
+    const fullName = e.registerName.value.trim();
+    const universityEmail = e.registerEmail.value.trim().toLowerCase();
+    const pin = e.registerPin.value;
+    if (studentId.length < 3 || fullName.length < 2 || !universityEmail.includes('@')) {
+      showAuthError(e.registerError, 'Complete your barcode, name and university email.');
+      return;
+    }
+    if (!/^\d{6}$/.test(pin)) {
+      showAuthError(e.registerError, 'Your PIN must contain exactly six numbers.');
+      return;
+    }
+    if (pin !== e.registerPinConfirm.value) {
+      showAuthError(e.registerError, 'The two PIN entries do not match.');
+      return;
+    }
+    setAuthBusy(e.registerForm, true);
+    try {
+      const { data, error } = await db.functions.invoke('register-student', {
+        body: { studentId, fullName, universityEmail, pin }
+      });
+      if (error) {
+        let message = 'Registration failed. This card may already be registered.';
+        try { const detail = await error.context?.json(); if (detail?.error) message = detail.error; } catch { /* keep safe message */ }
+        throw new Error(message);
+      }
+      if (!data?.ok) throw new Error(data?.error || 'Registration could not be completed.');
+      const email = await authEmailForId(studentId);
+      const signIn = await db.auth.signInWithPassword({ email, password: pin });
+      if (signIn.error) throw signIn.error;
+      await enterApp(signIn.data.session);
+      e.registerForm.reset();
+      toast('Registration complete. Your personal history is ready.');
+    } catch (error) {
+      console.error(error);
+      showAuthError(e.registerError, error.message || 'Registration failed. Please try again.');
+    } finally {
+      setAuthBusy(e.registerForm, false);
+    }
+  }
+
+  async function enterApp(session) {
+    if (!session) return leaveApp();
+    s.session = session;
+    e.authGate.hidden = true;
+    e.app.hidden = false;
+    e.account.hidden = false;
+    system('Loading your account…');
+    await loadStudentData();
+    resetIdleTimer();
+    system('Ready to start');
+  }
+
+  function leaveApp() {
+    s.session = null;
+    s.profile = null;
+    s.transactions = [];
+    clearTimeout(s.idleTimer);
+    if (s.running) stopCamera();
+    e.app.hidden = true;
+    e.account.hidden = true;
+    e.authGate.hidden = false;
+    e.accountName.textContent = 'Student';
+    e.accountId.textContent = 'ID card verified';
+    renderHistory();
+    system('Sign in to begin');
+    switchAuth('login');
+  }
+
+  async function loadStudentData() {
+    const userId = s.session?.user?.id;
+    if (!userId) return;
+    const [profileResult, transactionResult] = await Promise.all([
+      db.from('profiles').select('full_name,email,student_id').eq('id', userId).single(),
+      db.from('transactions').select('deposit_id,item_type,item_label,weight_g,confidence,points,status,created_at').order('created_at', { ascending: false }).limit(100)
+    ]);
+    if (profileResult.error) throw profileResult.error;
+    if (transactionResult.error) throw transactionResult.error;
+    s.profile = profileResult.data;
+    s.transactions = transactionResult.data || [];
+    e.accountName.textContent = s.profile.full_name || 'Student';
+    const id = String(s.profile.student_id || '');
+    e.accountId.textContent = id ? `Card ••••${id.slice(-4)}` : 'ID card verified';
+    renderHistory();
+  }
+
+  function resetIdleTimer() {
+    if (!s.session) return;
+    clearTimeout(s.idleTimer);
+    s.idleTimer = setTimeout(async () => {
+      toast('Signed out after five minutes of inactivity.');
+      await db.auth.signOut();
+      leaveApp();
+    }, IDLE_MS);
+  }
+
+  function weightParts(v) {
+    const g = Math.max(0, +v || 0);
+    if (e.unit.value === 'kg') {
+      const value = (g / 1000).toFixed(3).replace(/\.?0+$/, '');
+      return { value: value || '0', short: 'kg', long: 'kilograms' };
+    }
+    return { value: Math.round(g).toLocaleString(), short: 'g', long: 'grams' };
+  }
+  function displayWeight(v) { const p = weightParts(v); return p.value + ' ' + p.short; }
+  function renderCurrentWeight() { const p = weightParts(currentWeight()); e.weightNumber.textContent = p.value; e.weightUnit.textContent = p.long; }
+  function syncUnitUi() { const p = weightParts(s.manualWeight); e.manual.max = e.unit.value === 'kg' ? '5' : '5000'; e.manual.step = e.unit.value === 'kg' ? '0.001' : '1'; e.manualUnit.textContent = e.unit.value; if (s.manualWeight) e.manual.value = p.value; renderCurrentWeight(); updateReview(); renderHistory(); updateRoi(); }
+  function result(tone, icon, over, name, help) { e.objectResult.className = 'result' + (tone ? ' ' + tone : ''); e.objectIcon.textContent = icon; e.objectOverline.textContent = over; e.objectName.textContent = name; e.objectHelp.textContent = help; }
+  function updateTimer(ms = 0) { const safe = clamp(ms, 0, OBSERVE_MS); e.timer.textContent = (safe / 1000).toFixed(1) + ' / ' + (OBSERVE_MS / 1000).toFixed(1) + ' sec'; e.timerBar.style.width = (safe / OBSERVE_MS * 100) + '%'; }
+  function resetObservation() { s.candidate = ''; s.startedAt = 0; s.elapsed = 0; updateTimer(0); }
+
+  async function startCamera() {
+    if (!s.session) return toast('Sign in before starting the scanner.');
+    e.start.disabled = true;
+    try {
+      if (!window.tmImage) throw Error('AI library did not load. Check the internet connection.');
+      if (!navigator.mediaDevices?.getUserMedia) throw Error('Camera access requires HTTPS and a supported browser.');
+      pill(e.cameraPill, 'Loading', 'warn');
+      s.model = s.model || await tmImage.load(MODEL_URL + 'model.json', MODEL_URL + 'metadata.json');
+      s.stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'environment' }, audio: false });
+      e.video.srcObject = s.stream;
+      await e.video.play();
+      s.running = true;
+      e.placeholder.hidden = true;
+      e.roi.hidden = false;
+      e.stop.disabled = false;
+      e.startOcr.disabled = false;
+      pill(e.cameraPill, 'Camera live', 'good');
+      pill(e.objectPill, 'Waiting');
+      system('Scanner active', true);
+      result('', '○', 'Scanner ready', 'No object detected', 'Place one object in view and keep it still.');
+      requestAnimationFrame(loop);
+    } catch (error) {
+      console.error(error);
+      const message = error.name === 'NotAllowedError' ? 'Camera permission was blocked. Allow camera access in the browser address bar, then try again.' : error.message;
+      pill(e.cameraPill, 'Camera error', 'bad');
+      result('bad', '!', 'Unable to start', 'Camera or model error', message);
+      toast(message);
+      e.start.disabled = false;
+    }
+  }
+
+  function stopCamera() {
+    s.running = false;
+    (s.stream?.getTracks() || []).forEach((track) => track.stop());
+    s.stream = null;
+    e.video.srcObject = null;
+    e.placeholder.hidden = false;
+    e.roi.hidden = true;
+    e.start.disabled = false;
+    e.stop.disabled = true;
+    e.startOcr.disabled = true;
+    pill(e.cameraPill, 'Camera off');
+    system(s.session ? 'Ready to start' : 'Sign in to begin');
+    clearScan(false);
+  }
+
+  async function loop(now) {
+    if (!s.running) return;
+    drawCrop();
+    if (!s.predicting && now - s.lastPrediction > 180) {
+      s.lastPrediction = now;
+      s.predicting = true;
+      s.model.predict(e.video, false).then(checkObject).catch(console.error).finally(() => { s.predicting = false; });
+    }
+    if (s.ocrReady && s.approved && accepted(s.approved.kind) && !s.ocrBusy && now - s.lastOcr > 1100) {
+      s.lastOcr = now;
+      void readWeight();
+    }
+    requestAnimationFrame(loop);
+  }
+
+  function checkObject(predictions) {
+    if (!predictions?.length) return;
+    const top = [...predictions].sort((a, b) => b.probability - a.probability)[0];
+    const k = kind(top.className);
+    const now = performance.now();
+    if (s.awaitingRemoval) {
+      const clearView = k === 'empty' || k === 'invalid' || top.probability < THRESHOLD;
+      if (now - s.removalStartedAt > 800 && clearView) s.emptyFrames += 1;
+      else if (!clearView) s.emptyFrames = 0;
+      if (s.emptyFrames >= 3) {
+        s.awaitingRemoval = false;
+        s.emptyFrames = 0;
+        pill(e.objectPill, 'Waiting');
+        result('', '○', 'Scanner ready', 'No object detected', 'Place one object in view and keep it still.');
+        if (s.ocrReady) e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.';
+        system('Scanner active', true);
+      }
+      return;
+    }
+    if (s.approved) return;
+    if (top.probability < THRESHOLD) {
+      resetObservation(); pill(e.objectPill, 'Searching', 'warn');
+      result('warn', '…', 'Watching camera', 'Keep object steady', 'The timer starts only above 85% confidence.');
+      return;
+    }
+    if (k === 'empty') {
+      resetObservation(); pill(e.objectPill, 'Waiting');
+      result('', '○', 'Scanner ready', 'No object detected', 'Place one exchange object in view.');
+      return;
+    }
+    if (s.candidate !== top.className) { s.candidate = top.className; s.startedAt = now; s.elapsed = 0; }
+    else s.elapsed = now - s.startedAt;
+    updateTimer(s.elapsed);
+    if (s.elapsed < OBSERVE_MS) {
+      pill(e.objectPill, 'Observing', 'warn');
+      result('', '⌛', 'Observing object', 'Checking eligibility…', 'Keep the same object still for ' + ((OBSERVE_MS - s.elapsed) / 1000).toFixed(1) + ' more seconds.');
+      return;
+    }
+    s.approved = { label: top.className, kind: k, confidence: top.probability };
+    s.pendingDepositId = crypto.randomUUID();
+    updateTimer(OBSERVE_MS);
+    if (accepted(k)) {
+      pill(e.objectPill, 'Approved', 'good');
+      result('good', '✓', 'The object to exchange is:', top.className, 'Approved after three continuous seconds.');
+      toast(top.className + ' approved.');
+      if (!s.ocrReady) e.ocrStatus.textContent = 'Object approved. Enable auto weight to read the display.';
+    } else {
+      pill(e.objectPill, 'Rejected', 'bad');
+      result('bad', '×', 'Result', 'Object not exchangeable', 'Clear it and scan another object.');
+      toast('Object not exchangeable.');
+    }
+    updateReview();
+  }
+
+  function roiValues() { return { x: +e.x.value, y: +e.y.value, w: +e.w.value, h: +e.h.value }; }
+  function updateRoi() { const r = roiValues(); e.roi.style.setProperty('--x', r.x + '%'); e.roi.style.setProperty('--y', r.y + '%'); e.roi.style.setProperty('--w', r.w + '%'); e.roi.style.setProperty('--h', r.h + '%'); $('x-out').textContent = r.x + '%'; $('y-out').textContent = r.y + '%'; $('w-out').textContent = r.w + '%'; $('h-out').textContent = r.h + '%'; $('threshold-out').textContent = e.threshold.value; localStorage.setItem('last-bin-roi', JSON.stringify({ ...r, t: +e.threshold.value, inv: e.invert.checked, unit: e.unit.value })); }
+  function startRoiDrag(event) { if (!s.running) return; const box = e.stage.getBoundingClientRect(); const r = roiValues(); roiDrag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, box, left: r.x, top: r.y, width: r.w, height: r.h }; e.roi.classList.add('dragging'); e.roi.setPointerCapture(event.pointerId); event.preventDefault(); }
+  function moveRoiDrag(event) { if (!roiDrag || event.pointerId !== roiDrag.pointerId) return; const dx = (event.clientX - roiDrag.startX) / roiDrag.box.width * 100; const dy = (event.clientY - roiDrag.startY) / roiDrag.box.height * 100; e.x.value = Math.round(clamp(roiDrag.left + dx, 0, 100 - roiDrag.width)); e.y.value = Math.round(clamp(roiDrag.top + dy, 0, 100 - roiDrag.height)); updateRoi(); event.preventDefault(); }
+  function endRoiDrag(event) { if (!roiDrag || event.pointerId !== roiDrag.pointerId) return; e.roi.classList.remove('dragging'); if (e.roi.hasPointerCapture(event.pointerId)) e.roi.releasePointerCapture(event.pointerId); roiDrag = null; }
+  function drawCrop() { if (!s.running || !e.video.videoWidth) return; const r = roiValues(); const vw = e.video.videoWidth; const vh = e.video.videoHeight; const sx = vw * r.x / 100; const sy = vh * r.y / 100; const sw = vw * r.w / 100; const sh = vh * r.h / 100; const ctx = e.preview.getContext('2d', { willReadFrequently: true }); ctx.drawImage(e.video, sx, sy, sw, sh, 0, 0, e.preview.width, e.preview.height); const img = ctx.getImageData(0, 0, e.preview.width, e.preview.height); const d = img.data; const threshold = +e.threshold.value; const inv = e.invert.checked; for (let i = 0; i < d.length; i += 4) { const gray = .299 * d[i] + .587 * d[i + 1] + .114 * d[i + 2]; let v = gray > threshold ? 255 : 0; if (inv) v = 255 - v; d[i] = d[i + 1] = d[i + 2] = v; } ctx.putImageData(img, 0, 0); }
+
+  async function enableOcr() {
+    if (s.ocrReady) return;
+    if (!window.Tesseract) return toast('OCR library did not load. Check the internet connection.');
+    e.startOcr.disabled = true; pill(e.weightPill, 'Loading OCR', 'warn'); e.ocrStatus.textContent = 'Loading digit reader…';
+    try {
+      s.worker = await Tesseract.createWorker('eng', 1, { logger: (m) => { if (m.status) e.ocrStatus.textContent = m.status + (m.progress ? ` ${Math.round(m.progress * 100)}%` : ''); } });
+      await s.worker.setParameters({ tessedit_char_whitelist: '0123456789.', tessedit_pageseg_mode: '7' });
+      s.ocrReady = true; pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; toast('Automatic weight reader is ready.');
+    } catch (error) {
+      console.error(error); pill(e.weightPill, 'OCR error', 'bad'); e.ocrStatus.textContent = 'OCR could not start. Use manual weight.'; e.startOcr.disabled = false;
+    }
+  }
+
+  async function readWeight() {
+    if (!s.worker || s.ocrBusy) return;
+    s.ocrBusy = true;
+    try {
+      drawCrop();
+      const out = await s.worker.recognize(e.preview);
+      const raw = String(out.data.text || '').replace(',', '.').replace(/[^0-9.]/g, '');
+      const match = raw.match(/\d+(?:\.\d+)?/);
+      if (!match) { e.ocrStatus.textContent = 'Digits not clear — adjust the yellow box or threshold.'; return; }
+      let value = parseFloat(match[0]);
+      if (e.unit.value === 'kg') value *= 1000;
+      if (!Number.isFinite(value) || value <= 0 || value > 5000) { e.ocrStatus.textContent = 'Reading ignored: ' + raw; return; }
+      s.ocrReadings.push(value); s.ocrReadings = s.ocrReadings.slice(-4);
+      e.ocrStatus.textContent = 'Reading ' + displayWeight(value) + ' — checking stability…';
+      if (s.ocrReadings.length === 4) {
+        const min = Math.min(...s.ocrReadings); const max = Math.max(...s.ocrReadings); const avg = s.ocrReadings.reduce((a, b) => a + b, 0) / 4; const tolerance = Math.max(2, avg * .02);
+        if (max - min <= tolerance) { s.autoWeight = Math.round(avg); renderCurrentWeight(); pill(e.weightPill, 'Weight stable', 'good'); e.ocrStatus.textContent = 'Automatically captured from the scale display.'; updateReview(); }
+      }
+    } catch (error) {
+      console.error(error); e.ocrStatus.textContent = 'Could not read digits. Adjust calibration or use manual weight.';
+    } finally { s.ocrBusy = false; }
+  }
+
+  function updateReview() {
+    const ok = s.approved && accepted(s.approved.kind); const w = currentWeight(); const ready = ok && w > 0; const points = ready ? reward(s.approved.kind, w) : 0;
+    e.reviewObject.textContent = s.approved ? (ok ? s.approved.label : 'Object not exchangeable') : 'Not approved';
+    e.reviewWeight.textContent = w ? displayWeight(w) : '—';
+    e.reviewReward.textContent = ready ? points + ' point' + (points === 1 ? '' : 's') : '— points';
+    e.confirm.disabled = !ready;
+    if (s.approved && !ok) pill(e.depositPill, 'Rejected', 'bad');
+    else if (ready) pill(e.depositPill, 'Ready', 'good');
+    else if (ok) pill(e.depositPill, 'Add weight', 'warn');
+    else pill(e.depositPill, 'Not ready');
+  }
+
+  function clearScan(showToast = true) {
+    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = false; s.removalStartedAt = 0; s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Waiting'); pill(e.depositPill, 'Not ready'); result('', '○', s.running ? 'Scanner ready' : 'Waiting for scanner', s.running ? 'No object detected' : 'No object approved', s.running ? 'Place one object in view and keep it still.' : 'Start the camera first.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; } updateReview(); if (showToast) toast('Ready for the next object.');
+  }
+
+  function resetAfterDeposit() {
+    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = true; s.removalStartedAt = performance.now(); s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Remove item', 'warn'); pill(e.depositPill, 'Not ready'); result('', '↺', 'Deposit recorded', 'Remove the deposited object', 'The scanner will restart automatically when the tray is clear.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for the deposited object to be removed.'; } updateReview(); system('Waiting for item removal', true);
+  }
+
+  async function confirmDeposit() {
+    const w = currentWeight();
+    if (!s.session || !s.approved || !accepted(s.approved.kind) || w <= 0) return;
+    const originalText = e.confirm.textContent;
+    e.confirm.disabled = true; e.confirm.textContent = 'Saving deposit…'; pill(e.depositPill, 'Saving', 'warn');
+    const depositId = s.pendingDepositId || crypto.randomUUID();
+    s.pendingDepositId = depositId;
+    try {
+      const { data, error } = await db.from('transactions').insert({
+        deposit_id: depositId,
+        item_type: s.approved.kind,
+        item_label: s.approved.label,
+        weight_g: Math.round(w),
+        confidence: s.approved.confidence
+      }).select('deposit_id,item_type,item_label,weight_g,confidence,points,status,created_at').single();
+      if (error) throw error;
+      s.transactions.unshift(data);
+      s.transactions = s.transactions.slice(0, 100);
+      renderHistory();
+      toast(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${data.points} points.`);
+      resetAfterDeposit();
+      resetIdleTimer();
+    } catch (error) {
+      console.error(error);
+      pill(e.depositPill, 'Save failed', 'bad');
+      toast('Deposit was not saved. Check the internet connection and try again.');
+      updateReview();
+    } finally {
+      e.confirm.textContent = originalText;
+      if (s.approved && currentWeight() > 0) e.confirm.disabled = false;
+    }
+  }
+
+  function renderHistory() {
+    e.history.innerHTML = ''; e.weightLedger.innerHTML = '';
+    let totalPoints = 0;
+    s.transactions.forEach((transaction) => {
+      totalPoints += +transaction.points || 0;
+      const row = document.createElement('tr');
+      [new Date(transaction.created_at).toLocaleString(), transaction.item_label, displayWeight(transaction.weight_g), pct(transaction.confidence), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      e.history.appendChild(row);
+      const mini = document.createElement('tr');
+      [transaction.item_label, displayWeight(transaction.weight_g)].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; mini.appendChild(cell); });
+      e.weightLedger.appendChild(mini);
+    });
+    if (!s.transactions.length) {
+      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 5; cell.className = 'empty'; cell.textContent = s.session ? 'No deposits recorded for this student yet.' : 'Sign in to view your transaction history.'; row.appendChild(cell); e.history.appendChild(row);
+      const mini = document.createElement('tr'); const miniCell = document.createElement('td'); miniCell.colSpan = 2; miniCell.className = 'mini-empty'; miniCell.textContent = 'No records yet'; mini.appendChild(miniCell); e.weightLedger.appendChild(mini);
+    }
+    e.statItems.textContent = s.transactions.length;
+    e.statPoints.textContent = totalPoints;
+    e.download.disabled = !s.transactions.length;
+  }
+
+  function downloadCsv() {
+    const esc = (value) => '"' + String(value).replace(/"/g, '""') + '"';
+    const rows = [['time', 'deposit_id', 'object', 'weight_g', 'confidence_percent', 'points'], ...s.transactions.map((transaction) => [transaction.created_at, transaction.deposit_id, transaction.item_label, transaction.weight_g, Math.round(transaction.confidence * 100), transaction.points])];
+    const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(esc).join(',')).join('\n')], { type: 'text/csv' }));
+    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'the-last-bin-my-transactions.csv'; anchor.click(); URL.revokeObjectURL(url);
+  }
+
+  e.loginTab.addEventListener('click', () => switchAuth('login'));
+  e.registerTab.addEventListener('click', () => switchAuth('register'));
+  e.loginForm.addEventListener('submit', login);
+  e.registerForm.addEventListener('submit', register);
+  e.signOut.addEventListener('click', async () => { await db.auth.signOut(); leaveApp(); toast('Signed out safely.'); });
+  ['pointerdown', 'keydown', 'touchstart'].forEach((name) => document.addEventListener(name, resetIdleTimer, { passive: true }));
+  [e.x, e.y, e.w, e.h, e.threshold, e.invert].forEach((el) => el.addEventListener('input', updateRoi));
+  e.unit.addEventListener('change', syncUnitUi);
+  e.roi.addEventListener('pointerdown', startRoiDrag); e.roi.addEventListener('pointermove', moveRoiDrag); e.roi.addEventListener('pointerup', endRoiDrag); e.roi.addEventListener('pointercancel', endRoiDrag);
+  e.start.addEventListener('click', startCamera); e.stop.addEventListener('click', stopCamera); e.startOcr.addEventListener('click', enableOcr);
+  e.manual.addEventListener('input', () => { const entered = +e.manual.value || 0; s.manualWeight = clamp(e.unit.value === 'kg' ? entered * 1000 : entered, 0, 5000); if (s.manualWeight) { s.autoWeight = 0; pill(e.weightPill, 'Manual weight', 'warn'); } renderCurrentWeight(); updateReview(); });
+  e.confirm.addEventListener('click', confirmDeposit); e.clear.addEventListener('click', () => clearScan(true)); e.download.addEventListener('click', downloadCsv);
+
+  try {
+    const saved = JSON.parse(localStorage.getItem('last-bin-roi') || 'null');
+    if (saved) { e.x.value = saved.x; e.y.value = saved.y; e.w.value = saved.w; e.h.value = saved.h; e.threshold.value = saved.t || 155; e.invert.checked = !!saved.inv; e.unit.value = saved.unit || 'g'; }
+  } catch { /* use defaults */ }
+  localStorage.removeItem('last-bin-ocr-transactions-v1');
+  syncUnitUi();
+  renderHistory();
+
+  db.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') setTimeout(leaveApp, 0);
+    else if (event === 'SIGNED_IN' && !s.session) setTimeout(() => enterApp(session).catch((error) => { console.error(error); toast('Could not load your account.'); }), 0);
+  });
+
+  const { data: { session } } = await db.auth.getSession();
+  if (session) {
+    try { await enterApp(session); }
+    catch (error) { console.error(error); await db.auth.signOut(); leaveApp(); showAuthError(e.loginError, 'Your account could not be loaded. Please sign in again.'); }
+  } else leaveApp();
+});
