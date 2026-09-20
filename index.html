@@ -60,12 +60,11 @@
     .scanner-panel{min-width:0}.scan-grid{display:grid;grid-template-columns:minmax(380px,1.2fr) minmax(320px,.8fr);gap:12px;align-items:start}.camera-column,.decision-column{display:grid;align-content:start;gap:12px}.workflow-card{padding:16px}.step-object,.step-deposit{transition:transform .2s ease}
     .section-head{display:flex;justify-content:space-between;gap:15px;align-items:flex-start}.section-head h2{margin:0;font-size:19px}.pill{padding:6px 9px;border-radius:999px;background:#edf1ee;color:var(--muted);font-size:10px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}.pill.good{background:var(--mint);color:var(--green)}.pill.warn{background:var(--amber-soft);color:var(--amber)}.pill.bad{background:var(--red-soft);color:var(--red)}
     .stage{position:relative;display:grid;aspect-ratio:4/3;place-items:center;overflow:hidden;border-radius:18px;background:#0b1712}.stage video{width:100%;height:100%;object-fit:contain}.placeholder{position:absolute;inset:0;display:grid;place-content:center;color:#fff;text-align:center}.placeholder span{font-size:48px}.placeholder p{margin:9px 0 0;color:#9cafA5}.roi{position:absolute;left:var(--x,8%);top:var(--y,72%);width:var(--w,38%);height:var(--h,18%);border:3px solid #ffd24f;border-radius:8px;cursor:grab;touch-action:none;user-select:none}.roi.dragging{cursor:grabbing}.roi::before{content:"WEIGHT DISPLAY · DRAG TO MOVE";position:absolute;top:-23px;left:-2px;padding:4px 7px;border-radius:5px;background:#ffd24f;color:#231c00;font-size:8px;font-weight:950;white-space:nowrap}
-    .camera-actions{display:flex;gap:8px}.camera-actions .primary{flex:1}.camera-note{margin:0;color:var(--muted);font-size:11px;line-height:1.4}
+    .camera-note{margin:0;color:var(--muted);font-size:11px;line-height:1.4}
     .result{display:flex;gap:14px;align-items:center;min-height:118px;padding:16px;border:1px solid var(--line);border-radius:17px;background:#f7f9f7}.result.good{border-color:#b9ddc4;background:var(--mint)}.result.bad{border-color:#efc5c1;background:var(--red-soft)}.result.warn{border-color:#ead1a4;background:var(--amber-soft)}.result-icon{display:grid;flex:0 0 50px;height:50px;place-items:center;border-radius:14px;background:var(--deep);color:var(--lime);font-size:22px;font-weight:950}.result small{color:var(--muted);font-weight:850;text-transform:uppercase;letter-spacing:.07em}.result strong{display:block;margin:4px 0;font-size:20px}.result p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
-    .meter-row{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}.meter{height:8px;overflow:hidden;border-radius:99px;background:#e7ece9}.meter span{display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--green),var(--lime));transition:width .15s linear}
     .weight-card{padding:14px;border:1px solid var(--line);border-radius:17px;background:#fbfcfb}.weight-main{display:grid;grid-template-columns:112px 1fr;gap:13px;align-items:center}.preview{width:112px;height:66px;border:1px solid var(--line);border-radius:10px;background:#0d1712;image-rendering:pixelated}.weight-value{display:flex;align-items:baseline;gap:6px}.weight-value strong{font-size:35px;letter-spacing:-.04em}.weight-value span{color:var(--muted);font-weight:750}.ocr-status{margin:3px 0 0;color:var(--muted);font-size:11px;line-height:1.35}
     .manual-details{margin-top:10px;border-top:1px solid var(--line)}.manual-details summary{padding:10px 0 0;cursor:pointer;color:var(--muted);font-size:11px;font-weight:800}.manual{display:flex;align-items:center;margin-top:9px;border:1px solid var(--line);border-radius:10px}.manual input{min-width:0;width:100%;padding:9px;border:0;outline:0;background:transparent}.manual span{padding-right:10px;color:var(--muted);font-size:11px}
-    .review{display:grid;gap:7px}.review-row{display:flex;justify-content:space-between;gap:15px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fafbfa}.review-row span{color:var(--muted);font-size:12px}.review-row strong{text-align:right;font-size:13px}.review-row.reward{border-color:#d8e8ca;background:#f6faeb}.review-row.reward strong{color:var(--green);font-size:18px}.compartment{padding:11px 12px;border-radius:12px;background:var(--deep);color:#fff;font-size:12px}.compartment strong{display:block;margin-top:3px;color:var(--lime);font-size:15px}.deposit-actions{display:grid;grid-template-columns:1fr auto;gap:8px}.deposit-actions .confirm{background:var(--lime);color:var(--deep)}
+    .review{display:grid;gap:7px}.review-row{display:flex;justify-content:space-between;gap:15px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fafbfa}.review-row span{color:var(--muted);font-size:12px}.review-row strong{text-align:right;font-size:13px}.review-row.reward{border-color:#d8e8ca;background:#f6faeb}.review-row.reward strong{color:var(--green);font-size:18px}.deposit-actions{display:grid;grid-template-columns:1fr auto;gap:8px}.deposit-actions .confirm{background:var(--lime);color:var(--deep)}
     .tech-details{margin-top:12px;border:1px dashed #cfd9d2;border-radius:14px;background:#f9fbf9}.tech-details summary{padding:12px 14px;cursor:pointer;color:var(--muted);font-size:11px;font-weight:850}.calibration{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:0 14px 14px}.control label{display:flex;justify-content:space-between;margin-bottom:5px;color:var(--muted);font-size:10px}.control input[type=range],.control select{width:100%}.control select{padding:7px;border:1px solid var(--line);border-radius:8px;background:#fff}.check{display:flex;gap:7px;align-items:center;font-size:11px}.notice{grid-column:1/-1;margin:0;padding:9px;border-radius:9px;background:var(--amber-soft);color:#6d4d0c;font-size:10px;line-height:1.4}
 
     /* Receipt rail */
@@ -76,7 +75,7 @@
     @media(max-width:1120px){.work-grid{grid-template-columns:1fr}.receipt{position:static}.stage{max-height:500px}.calibration{grid-template-columns:repeat(2,1fr)}}
     @media(max-width:860px){.welcome-main{grid-template-columns:1fr;gap:34px}.welcome h1{font-size:clamp(48px,12vw,78px)}.accepted-card{display:none}.kiosk-top{grid-template-columns:1fr auto}.system{display:none}.workflow-banner{align-items:flex-start}.steps{display:none}.scan-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
     @media(max-width:700px){.scan-grid{display:flex;flex-direction:column}.camera-column,.decision-column{display:contents}.step-scanner{order:1}.step-object{order:2}.step-weight{order:3}.step-deposit{order:4}}
-    @media(max-width:600px){.welcome-inner{width:calc(100% - 34px)}.welcome-foot span:last-child{display:none}.access-screen,.kiosk{padding:10px}.access-top .brand-copy{display:none}.account-copy{display:none}.points-chip{display:none}.workflow-banner{padding-inline:3px}.camera-actions{display:grid;grid-template-columns:1fr 1fr}.camera-actions .primary{grid-column:1/-1}.weight-main{grid-template-columns:92px 1fr}.preview{width:92px}.deposit-actions{grid-template-columns:1fr}.calibration{grid-template-columns:1fr}.receipt-stats{grid-template-columns:repeat(3,1fr)}}
+    @media(max-width:600px){.welcome-inner{width:calc(100% - 34px)}.welcome-foot span:last-child{display:none}.access-screen,.kiosk{padding:10px}.access-top .brand-copy{display:none}.account-copy{display:none}.points-chip{display:none}.workflow-banner{padding-inline:3px}.weight-main{grid-template-columns:92px 1fr}.preview{width:92px}.deposit-actions{grid-template-columns:1fr}.calibration{grid-template-columns:1fr}.receipt-stats{grid-template-columns:repeat(3,1fr)}}
   </style>
 </head>
 <body>
@@ -146,7 +145,7 @@
       </header>
 
       <section class="workflow-banner">
-        <div><span class="eyebrow" id="workflow-eyebrow">Step 1 of 4</span><h1 id="workflow-title">Start the scanner</h1><p id="workflow-help">Place one accepted object and its weighing scale inside the camera view.</p></div>
+        <div><span class="eyebrow" id="workflow-eyebrow">Step 1 of 4</span><h1 id="workflow-title">Scanner starting</h1><p id="workflow-help">Place one accepted object and its weighing scale inside the camera view.</p></div>
         <div class="steps" aria-label="Deposit progress">
           <span class="step-dot active" data-step="scan"><b>1</b> Scan</span><span class="step-dot" data-step="identify"><b>2</b> Identify</span><span class="step-dot" data-step="weigh"><b>3</b> Weigh</span><span class="step-dot" data-step="deposit"><b>4</b> Deposit</span>
         </div>
@@ -158,9 +157,8 @@
             <div class="camera-column">
               <article class="panel workflow-card step-scanner">
                 <div class="section-head"><div><span class="eyebrow">Step 01 · Live scanner</span><h2>Object and scale view</h2></div><span class="pill" id="camera-pill">Camera off</span></div>
-                <div class="stage" id="stage"><video id="video" playsinline muted></video><div class="placeholder" id="placeholder"><span>▣</span><p>Press start scanner</p></div><div class="roi" id="roi" hidden></div></div>
-                <div class="camera-actions"><button class="btn primary" id="start-camera" type="button">Start scanner</button><button class="btn secondary" id="start-ocr" type="button" disabled>Auto weight</button><button class="btn secondary" id="stop-camera" type="button" disabled>Stop</button></div>
-                <p class="camera-note">Automatic weight reading starts with the camera. The yellow box can be dragged over any scale-display position.</p>
+                <div class="stage" id="stage"><video id="video" playsinline muted></video><div class="placeholder" id="placeholder"><span>▣</span><p>Scanner starts automatically after sign-in</p></div><div class="roi" id="roi" hidden></div></div>
+                <p class="camera-note">The scanner and automatic weight reader start after sign-in. The yellow box can be dragged over any scale-display position.</p>
                 <details class="tech-details" id="staff-calibration">
                   <summary>Staff setup · calibrate weight display</summary>
                   <div class="calibration">
@@ -186,8 +184,7 @@
             <div class="decision-column">
               <article class="panel workflow-card step-object">
                 <div class="section-head"><div><span class="eyebrow">Step 02 · AI verification</span><h2>Object to exchange</h2></div><span class="pill" id="object-pill">Waiting</span></div>
-                <div class="result" id="object-result"><div class="result-icon" id="object-icon">○</div><div><small id="object-overline">Waiting for scanner</small><strong id="object-name">No object approved</strong><p id="object-help">Start the camera, then place one item on the tray.</p></div></div>
-                <div class="meter-row"><span>Must remain above 85%</span><strong id="timer-label">0.0 / 3.0 sec</strong></div><div class="meter"><span id="timer-bar"></span></div>
+                <div class="result" id="object-result"><div class="result-icon" id="object-icon">○</div><div><small id="object-overline">Waiting for scanner</small><strong id="object-name">No object approved</strong><p id="object-help">The scanner starts after sign-in. Place one item on the tray.</p></div></div>
               </article>
 
               <article class="panel workflow-card step-deposit">
@@ -197,7 +194,6 @@
                   <div class="review-row"><span>Stable weight</span><strong id="review-weight">—</strong></div>
                   <div class="review-row reward"><span>Reward estimate</span><strong id="review-reward">— points</strong></div>
                 </div>
-                <div class="compartment"><span>After confirmation, use:</span><strong id="review-compartment">Waiting for an approved object</strong></div>
                 <div class="deposit-actions"><button class="btn confirm" id="confirm" type="button" disabled>Confirm deposit &amp; add reward</button><button class="btn secondary" id="clear" type="button">Clear</button></div>
               </article>
             </div>

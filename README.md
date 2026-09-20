@@ -6,10 +6,10 @@ The Last Bin is a university-installed exchange-kiosk prototype that combines ca
 
 1. Touch the attract screen and scan or enter a university UID.
 2. Register the first time with UID, full name, department, and password; later visits need only UID and password.
-3. Start the scanner and place one accepted object with the scale display visible.
+3. After sign-in, the scanner and automatic weight reader start without student controls. Place one accepted object with the scale display visible.
 4. Keep the same category above 85% confidence for three continuous seconds.
 5. The scale display is read automatically. The yellow OCR box is movable and manual entry stays behind an optional fallback.
-6. Review the object, weight, estimated reward, and indicated collection compartment.
+6. Review the approved object, stable weight, and estimated reward.
 7. Confirm the deposit. Supabase stores it only in that student's history and the current-session receipt updates immediately.
 8. Finish the session to sign out. The kiosk also signs out after two minutes of inactivity, and browser sessions are not persisted across refreshes.
 
@@ -36,7 +36,7 @@ Replace this placeholder after the final reward table is approved.
 
 ## Prototype boundary
 
-The software can identify categories, read the scale display, save deposits, and tell the student which labelled compartment to use. Motorized doors, door sensors, fill-level sensors, physical deposit verification, and automatic scale tare require hardware integration and are not simulated as completed features.
+The software can identify categories, read the scale display, and save deposits. Motorized doors, door sensors, fill-level sensors, physical deposit verification, and automatic scale tare require hardware integration and are not simulated as completed features.
 
 ## Safe sharing
 
