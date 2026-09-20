@@ -8,6 +8,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   const THRESHOLD = 0.85;
   const OBSERVE_MS = 3000;
   const IDLE_MS = 2 * 60 * 1000;
+  const REWARD_RATES = { book: 20, bottle: 10, pen: 9 };
   const $ = (id) => document.getElementById(id);
 
   const e = {
@@ -23,6 +24,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     registerPasswordConfirm: $('register-password-confirm'), registerError: $('register-error'),
     video: $('video'), stage: $('stage'), placeholder: $('placeholder'), roi: $('roi'),
     weightModal: $('weight-modal'), openWeightModal: $('open-weight-modal'), closeWeightModal: $('close-weight-modal'),
+    rewardsModal: $('rewards-modal'), openRewardsModal: $('open-rewards-modal'), closeRewardsModal: $('close-rewards-modal'),
     cameraPill: $('camera-pill'), objectPill: $('object-pill'), objectResult: $('object-result'),
     objectIcon: $('object-icon'), objectOverline: $('object-overline'), objectName: $('object-name'),
     objectHelp: $('object-help'),
@@ -65,7 +67,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   function normalizeUid(value) { return String(value || '').trim().toUpperCase().replace(/\s+/g, ''); }
   function kind(label) { const v = norm(label); if (/empty|no object|nothing|background|blank/.test(v)) return 'empty'; if (/invalid|other|reject|unknown|extra|not accepted/.test(v)) return 'invalid'; if (/bottle|can|tin|juice|container/.test(v)) return 'bottle'; if (/pen|pencil|stationery|marker/.test(v)) return 'pen'; if (/book|notebook|paper|note|copy/.test(v)) return 'book'; return 'invalid'; }
   function accepted(k) { return ['bottle', 'pen', 'book'].includes(k); }
-  function reward(k, w) { if (!accepted(k) || w <= 0) return 0; if (k === 'pen') return 2; if (k === 'bottle') return Math.max(1, Math.round(w / 50)); return Math.max(1, Math.round(w / 100)); }
+  function reward(k, w) { if (!accepted(k) || w <= 0) return 0; return Math.round(((w / 1000) * REWARD_RATES[k] + Number.EPSILON) * 1000) / 1000; }
+  function formatPoints(value) { const points = Math.round((+value || 0) * 1000) / 1000; return points.toFixed(3).replace(/\.?0+$/, ''); }
   function currentWeight() { return s.autoWeight || s.manualWeight || 0; }
   function categoryName(k) { return ({ bottle: 'Bottles & cans', pen: 'Pens & pencils', book: 'Books & paper' })[k] || 'Other'; }
   function weightIssue(k, w) {
@@ -151,6 +154,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   function openWeightSettings() {
     if (!s.session) return;
+    e.rewardsModal.hidden = true;
     e.weightModal.hidden = false;
     e.closeWeightModal.focus();
   }
@@ -158,6 +162,18 @@ window.addEventListener('DOMContentLoaded', async () => {
   function closeWeightSettings() {
     e.weightModal.hidden = true;
     if (!e.app.hidden) e.openWeightModal.focus();
+  }
+
+  function openRewards() {
+    if (!s.session) return;
+    e.weightModal.hidden = true;
+    e.rewardsModal.hidden = false;
+    e.closeRewardsModal.focus();
+  }
+
+  function closeRewards() {
+    e.rewardsModal.hidden = true;
+    if (!e.app.hidden) e.openRewardsModal.focus();
   }
 
   async function login(event) {
@@ -250,6 +266,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     clearTimeout(s.idleTimer);
     if (s.running) stopCamera();
     e.weightModal.hidden = true;
+    e.rewardsModal.hidden = true;
     s.session = null;
     s.profile = null;
     s.transactions = [];
@@ -473,7 +490,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const ok = s.approved && accepted(s.approved.kind); const w = currentWeight(); const issue = ok ? weightIssue(s.approved.kind, w) : ''; const ready = ok && w > 0 && !issue; const points = ready ? reward(s.approved.kind, w) : 0;
     e.reviewObject.textContent = s.approved ? (ok ? s.approved.label : 'Object not exchangeable') : 'Not approved';
     e.reviewWeight.textContent = w ? (issue ? `${displayWeight(w)} · recheck` : displayWeight(w)) : '—';
-    e.reviewReward.textContent = ready ? points + ' point' + (points === 1 ? '' : 's') : '— points';
+    e.reviewReward.textContent = ready ? formatPoints(points) + ' point' + (points === 1 ? '' : 's') : '— points';
     e.confirm.disabled = !ready;
     if (s.approved && !ok) pill(e.depositPill, 'Rejected', 'bad');
     else if (issue) { pill(e.depositPill, 'Recheck weight', 'bad'); setPhase('weigh', 'Check the weight reading', issue); }
@@ -506,7 +523,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       s.transactions = s.transactions.slice(0, 100);
       s.sessionTransactions.unshift(data);
       renderHistory();
-      await endSession(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${data.points} points. The next student may now sign in.`, 'login');
+      await endSession(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${formatPoints(data.points)} points. The next student may now sign in.`, 'login');
     } catch (error) {
       console.error(error);
       pill(e.depositPill, 'Save failed', 'bad');
@@ -533,7 +550,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     s.transactions.slice(0, 2).forEach((transaction) => {
       const row = document.createElement('tr');
-      [new Date(transaction.created_at).toLocaleDateString(), transaction.item_label, '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      [new Date(transaction.created_at).toLocaleDateString(), transaction.item_label, '+' + formatPoints(transaction.points)].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
       e.accountHistory.appendChild(row);
     });
     if (!s.transactions.length) {
@@ -541,9 +558,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     e.statItems.textContent = s.transactions.length;
-    e.statPoints.textContent = lifetimePoints;
+    e.statPoints.textContent = formatPoints(lifetimePoints);
     e.sessionWeight.textContent = displayWeight(lifetimeWeight);
-    e.headerPoints.textContent = lifetimePoints;
+    e.headerPoints.textContent = formatPoints(lifetimePoints);
   }
 
   async function endSession(message = 'Session finished. Your account is safely signed out.', target = 'welcome') {
@@ -567,7 +584,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   e.openWeightModal.addEventListener('click', openWeightSettings);
   e.closeWeightModal.addEventListener('click', closeWeightSettings);
   e.weightModal.addEventListener('pointerdown', (event) => { if (event.target === e.weightModal) closeWeightSettings(); });
-  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !e.weightModal.hidden) closeWeightSettings(); });
+  e.openRewardsModal.addEventListener('click', openRewards);
+  e.closeRewardsModal.addEventListener('click', closeRewards);
+  e.rewardsModal.addEventListener('pointerdown', (event) => { if (event.target === e.rewardsModal) closeRewards(); });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (!e.weightModal.hidden) closeWeightSettings();
+    else if (!e.rewardsModal.hidden) closeRewards();
+  });
   ['pointerdown', 'keydown', 'touchstart'].forEach((name) => document.addEventListener(name, resetIdleTimer, { passive: true }));
   [e.x, e.y, e.w, e.h, e.threshold, e.invert].forEach((el) => el.addEventListener('input', updateRoi));
   e.unit.addEventListener('change', syncUnitUi);

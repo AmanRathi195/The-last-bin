@@ -9,7 +9,7 @@ The Last Bin is a university-installed exchange-kiosk prototype that combines ca
 3. After sign-in, the fixed full-screen kiosk starts the scanner and automatic weight reader without student controls.
 4. Keep the same category above 85% confidence for three continuous seconds.
 5. The scale display is read automatically. Weight status, manual fallback, and calibration controls open in a centered modal and close by clicking outside it.
-6. Review the approved object, stable weight, and estimated reward in the three-step scanner, verification, and deposit flow.
+6. Review the approved object, stable weight, and exact proportional reward in the three-step scanner, verification, and deposit flow. The “Points & rewards” popup explains both the earning rates and redemption catalog.
 7. Confirm the deposit. Supabase stores it only in that student's history, signs the student out, and returns directly to the login screen for the next student.
 8. The kiosk also signs out after two minutes of inactivity, and browser sessions are not persisted across refreshes.
 
@@ -26,13 +26,17 @@ The signed-in screen is a no-scroll, cashier-style desktop interface. It shows t
 
 The Supabase publishable key in `app.js` is intentionally public. Access is protected by Row Level Security. Never place a service-role or secret key in browser code.
 
-## Current reward placeholder
+## Reward scheme
 
-- Pen or pencil: 2 points
-- Bottle or can: approximately 1 point per 50 g
-- Book, notebook, or paper: approximately 1 point per 100 g
+New deposits earn points from their exact recorded weight:
 
-Replace this placeholder after the final reward table is approved.
+- Books, notebooks, notes, and paper: 20 points per kg
+- Bottles and cans: 10 points per kg
+- Pens and pencils: 9 points per kg
+
+Points are stored to three decimal places, so 500 g of books earns 10 points and 200 g of pens earns 1.8 points. Existing transaction rewards are preserved when the database column is upgraded.
+
+Students can redeem their balance for an A4-size notebook (40 points), pen (5 points), pencil (4 points), pocket-size diary (15 points), sketch pens (25 points), or transparent folder (15 points).
 
 ## Prototype boundary
 

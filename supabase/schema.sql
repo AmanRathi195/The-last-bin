@@ -82,10 +82,15 @@ create table if not exists public.transactions (
   item_label text not null check (char_length(item_label) between 1 and 120),
   weight_g integer not null check (weight_g > 0 and weight_g <= 5000),
   confidence numeric(5,4) not null check (confidence >= 0 and confidence <= 1),
-  points integer not null default 0 check (points >= 0),
+  points numeric(10,3) not null default 0 check (points >= 0),
   status text not null default 'confirmed' check (status in ('confirmed', 'pending', 'rejected')),
   created_at timestamptz not null default now()
 );
+
+-- Preserve existing rewards while allowing exact proportional points for future deposits.
+alter table public.transactions
+  alter column points type numeric(10,3)
+  using points::numeric(10,3);
 
 create index if not exists transactions_user_created_idx
   on public.transactions (user_id, created_at desc);
@@ -102,12 +107,16 @@ begin
     raise exception 'Authentication required';
   end if;
 
-  new.points := case new.item_type
-    when 'pen' then 2
-    when 'bottle' then greatest(1, round(new.weight_g::numeric / 50)::integer)
-    when 'book' then greatest(1, round(new.weight_g::numeric / 100)::integer)
-    else 0
-  end;
+  new.points := round(
+    (new.weight_g::numeric / 1000) *
+    case new.item_type
+      when 'book' then 20
+      when 'bottle' then 10
+      when 'pen' then 9
+      else 0
+    end,
+    3
+  );
   new.status := 'confirmed';
   new.created_at := now();
   return new;
