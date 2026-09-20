@@ -14,7 +14,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     welcome: $('welcome-screen'), beginSession: $('begin-session'), backToWelcome: $('back-to-welcome'),
     authGate: $('auth-gate'), app: $('app-content'), account: $('account'),
     accountName: $('account-name'), accountId: $('account-id'), signOut: $('sign-out'),
-    finishSession: $('finish-session'), headerPoints: $('header-points'),
+    headerPoints: $('header-points'),
     workflowEyebrow: $('workflow-eyebrow'), workflowTitle: $('workflow-title'), workflowHelp: $('workflow-help'),
     loginTab: $('login-tab'), registerTab: $('register-tab'), loginForm: $('login-form'),
     registerForm: $('register-form'), loginUid: $('login-uid'), loginPassword: $('login-password'),
@@ -22,6 +22,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     registerDepartment: $('register-department'), registerPassword: $('register-password'),
     registerPasswordConfirm: $('register-password-confirm'), registerError: $('register-error'),
     video: $('video'), stage: $('stage'), placeholder: $('placeholder'), roi: $('roi'),
+    weightModal: $('weight-modal'), openWeightModal: $('open-weight-modal'), closeWeightModal: $('close-weight-modal'),
     cameraPill: $('camera-pill'), objectPill: $('object-pill'), objectResult: $('object-result'),
     objectIcon: $('object-icon'), objectOverline: $('object-overline'), objectName: $('object-name'),
     objectHelp: $('object-help'),
@@ -29,9 +30,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     weightUnit: $('weight-unit'), ocrStatus: $('ocr-status'), manual: $('manual-weight'),
     manualUnit: $('manual-unit'), reviewObject: $('review-object'), reviewWeight: $('review-weight'),
     reviewReward: $('review-reward'), depositPill: $('deposit-pill'), confirm: $('confirm'),
-    clear: $('clear'), history: $('history'), weightLedger: $('weight-ledger'), download: $('download'),
-    accountHistory: $('account-history'), statItems: $('stat-items'), statPoints: $('stat-points'),
-    sessionWeight: $('session-weight'), receiptPoints: $('receipt-points'), system: $('system-status'),
+    clear: $('clear'), weightLedger: $('weight-ledger'), accountHistory: $('account-history'),
+    statItems: $('stat-items'), statPoints: $('stat-points'), sessionWeight: $('session-weight'), system: $('system-status'),
     systemLabel: $('system-label'), toast: $('toast'), x: $('roi-x'), y: $('roi-y'),
     w: $('roi-w'), h: $('roi-h'), threshold: $('threshold'), invert: $('invert'), unit: $('unit')
   };
@@ -42,7 +42,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     candidate: '', startedAt: 0, elapsed: 0, approved: null, pendingDepositId: null,
     awaitingRemoval: false, removalStartedAt: 0, emptyFrames: 0,
     worker: null, ocrReady: false, ocrBusy: false, lastOcr: 0, ocrReadings: [],
-    autoWeight: 0, manualWeight: 0
+    autoWeight: 0, manualWeight: 0, exitTarget: 'welcome'
   };
   let roiDrag = null;
 
@@ -78,17 +78,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   function setPhase(phase, title, help) {
     const defaults = {
-      scan: ['Step 1 of 4', 'Scanner starting', 'Place one accepted object and its weighing scale inside the camera view.'],
-      identify: ['Step 2 of 4', 'Keep one object still', 'The same valid category must stay above 85% confidence for three seconds.'],
-      weigh: ['Step 3 of 4', 'Reading the object weight', 'Keep the scale display inside the yellow box until a stable weight is captured.'],
-      deposit: ['Step 4 of 4', 'Review and confirm', 'Check the approved object, stable weight, and estimated reward before confirming.']
+      scan: ['Step 1 of 3', 'Scanner starting', 'Place one accepted object and its weighing scale inside the camera view.'],
+      identify: ['Step 2 of 3', 'Keep one object still', 'The same valid category must stay above 85% confidence for three seconds.'],
+      weigh: ['Step 2 of 3', 'Reading object and weight', 'Keep the item still while the scanner captures the scale display automatically.'],
+      deposit: ['Step 3 of 3', 'Review and confirm', 'Check the approved object, stable weight, and estimated reward before confirming.']
     };
     const copy = defaults[phase] || defaults.scan;
     s.phase = phase;
     e.workflowEyebrow.textContent = copy[0];
     e.workflowTitle.textContent = title || copy[1];
     e.workflowHelp.textContent = help || copy[2];
-    document.querySelectorAll('.step-dot').forEach((node) => node.classList.toggle('active', node.dataset.step === phase));
+    const visiblePhase = phase === 'weigh' ? 'identify' : phase;
+    document.querySelectorAll('.step-dot').forEach((node) => node.classList.toggle('active', node.dataset.step === visiblePhase));
   }
 
   async function authEmailForId(value) {
@@ -136,6 +137,27 @@ window.addEventListener('DOMContentLoaded', async () => {
     e.app.hidden = true;
     e.authGate.hidden = false;
     switchAuth('login');
+  }
+
+  function showLogin() {
+    e.welcome.hidden = true;
+    e.app.hidden = true;
+    e.account.hidden = true;
+    e.authGate.hidden = false;
+    e.loginForm.reset();
+    e.registerForm.reset();
+    switchAuth('login');
+  }
+
+  function openWeightSettings() {
+    if (!s.session) return;
+    e.weightModal.hidden = false;
+    e.closeWeightModal.focus();
+  }
+
+  function closeWeightSettings() {
+    e.weightModal.hidden = true;
+    if (!e.app.hidden) e.openWeightModal.focus();
   }
 
   async function login(event) {
@@ -209,6 +231,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   async function enterApp(session) {
     if (!session) return leaveApp();
     s.session = session;
+    s.exitTarget = 'welcome';
     s.sessionTransactions = [];
     e.welcome.hidden = true;
     e.authGate.hidden = true;
@@ -223,9 +246,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     void startCamera();
   }
 
-  function leaveApp() {
+  function leaveApp(target = 'welcome') {
     clearTimeout(s.idleTimer);
     if (s.running) stopCamera();
+    e.weightModal.hidden = true;
     s.session = null;
     s.profile = null;
     s.transactions = [];
@@ -235,7 +259,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     renderHistory();
     system('Touch start to begin');
     switchAuth('login');
-    showWelcome();
+    if (target === 'login') showLogin();
+    else showWelcome();
   }
 
   async function loadStudentData() {
@@ -461,10 +486,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = false; s.removalStartedAt = 0; s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Waiting'); pill(e.depositPill, 'Not ready'); result('', '○', s.running ? 'Scanner ready' : 'Waiting for scanner', s.running ? 'No object detected' : 'No object approved', s.running ? 'Place one object in view and keep it still.' : 'The scanner starts automatically after sign-in. If camera permission is blocked, allow it and sign in again.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for an approved object and stable weight.'; } updateReview(); setPhase(s.running ? 'identify' : 'scan'); if (showToast) toast('Ready for the next object.');
   }
 
-  function resetAfterDeposit() {
-    s.approved = null; s.pendingDepositId = null; s.awaitingRemoval = true; s.removalStartedAt = performance.now(); s.emptyFrames = 0; s.autoWeight = 0; s.manualWeight = 0; s.ocrReadings = []; e.manual.value = ''; renderCurrentWeight(); resetObservation(); pill(e.objectPill, 'Remove item', 'warn'); pill(e.depositPill, 'Not ready'); result('', '↺', 'Deposit recorded', 'Remove the deposited object', 'The scanner will restart automatically when the tray is clear.'); if (s.ocrReady) { pill(e.weightPill, 'OCR ready', 'good'); e.ocrStatus.textContent = 'Waiting for the deposited object to be removed.'; } updateReview(); setPhase('scan', 'Remove the deposited object', 'Your receipt is updated. Clear the tray to scan another item, or finish the session.'); system('Waiting for item removal', true);
-  }
-
   async function confirmDeposit() {
     const w = currentWeight();
     if (!s.session || !s.approved || !accepted(s.approved.kind) || w <= 0) return;
@@ -485,9 +506,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       s.transactions = s.transactions.slice(0, 100);
       s.sessionTransactions.unshift(data);
       renderHistory();
-      toast(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${data.points} points.`);
-      resetAfterDeposit();
-      resetIdleTimer();
+      await endSession(`Deposit confirmed: ${data.item_label}, ${displayWeight(data.weight_g)}, +${data.points} points. The next student may now sign in.`, 'login');
     } catch (error) {
       console.error(error);
       pill(e.depositPill, 'Save failed', 'bad');
@@ -500,19 +519,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   function renderHistory() {
-    e.history.innerHTML = ''; e.weightLedger.innerHTML = ''; e.accountHistory.innerHTML = '';
+    e.weightLedger.innerHTML = ''; e.accountHistory.innerHTML = '';
     const lifetimePoints = s.transactions.reduce((sum, transaction) => sum + (+transaction.points || 0), 0);
-    const sessionPoints = s.sessionTransactions.reduce((sum, transaction) => sum + (+transaction.points || 0), 0);
-    const sessionWeight = s.sessionTransactions.reduce((sum, transaction) => sum + (+transaction.weight_g || 0), 0);
-
-    s.sessionTransactions.forEach((transaction) => {
-      const row = document.createElement('tr');
-      [transaction.item_label, displayWeight(transaction.weight_g), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
-      e.history.appendChild(row);
-    });
-    if (!s.sessionTransactions.length) {
-      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 3; cell.className = 'empty'; cell.textContent = 'No items in this session'; row.appendChild(cell); e.history.appendChild(row);
-    }
+    const lifetimeWeight = s.transactions.reduce((sum, transaction) => sum + (+transaction.weight_g || 0), 0);
 
     const weightByType = new Map();
     s.transactions.forEach((transaction) => weightByType.set(transaction.item_type, (weightByType.get(transaction.item_type) || 0) + (+transaction.weight_g || 0)));
@@ -522,38 +531,28 @@ window.addEventListener('DOMContentLoaded', async () => {
       e.weightLedger.appendChild(row);
     });
 
-    s.transactions.forEach((transaction) => {
+    s.transactions.slice(0, 2).forEach((transaction) => {
       const row = document.createElement('tr');
-      [new Date(transaction.created_at).toLocaleDateString(), transaction.item_label, displayWeight(transaction.weight_g), '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
+      [new Date(transaction.created_at).toLocaleDateString(), transaction.item_label, '+' + transaction.points].forEach((value) => { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); });
       e.accountHistory.appendChild(row);
     });
     if (!s.transactions.length) {
-      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 4; cell.className = 'mini-empty'; cell.textContent = s.session ? 'No previous deposits' : 'Sign in to view account history'; row.appendChild(cell); e.accountHistory.appendChild(row);
+      const row = document.createElement('tr'); const cell = document.createElement('td'); cell.colSpan = 3; cell.className = 'mini-empty'; cell.textContent = s.session ? 'No previous deposits' : 'Sign in to view account history'; row.appendChild(cell); e.accountHistory.appendChild(row);
     }
 
-    e.statItems.textContent = s.sessionTransactions.length;
-    e.statPoints.textContent = sessionPoints;
-    e.receiptPoints.textContent = sessionPoints;
-    e.sessionWeight.textContent = displayWeight(sessionWeight);
+    e.statItems.textContent = s.transactions.length;
+    e.statPoints.textContent = lifetimePoints;
+    e.sessionWeight.textContent = displayWeight(lifetimeWeight);
     e.headerPoints.textContent = lifetimePoints;
-    e.download.disabled = !s.sessionTransactions.length;
   }
 
-  function downloadCsv() {
-    const esc = (value) => '"' + String(value).replace(/"/g, '""') + '"';
-    const rows = [['time', 'deposit_id', 'object', 'weight_g', 'confidence_percent', 'points'], ...s.sessionTransactions.map((transaction) => [transaction.created_at, transaction.deposit_id, transaction.item_label, transaction.weight_g, Math.round(transaction.confidence * 100), transaction.points])];
-    const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(esc).join(',')).join('\n')], { type: 'text/csv' }));
-    const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'the-last-bin-session-receipt.csv'; anchor.click(); URL.revokeObjectURL(url);
-  }
-
-  async function endSession(message = 'Session finished. Your account is safely signed out.') {
+  async function endSession(message = 'Session finished. Your account is safely signed out.', target = 'welcome') {
+    s.exitTarget = target;
     e.signOut.disabled = true;
-    e.finishSession.disabled = true;
     try { await db.auth.signOut(); }
     finally {
-      leaveApp();
+      leaveApp(target);
       e.signOut.disabled = false;
-      e.finishSession.disabled = false;
       toast(message);
     }
   }
@@ -565,13 +564,16 @@ window.addEventListener('DOMContentLoaded', async () => {
   e.loginForm.addEventListener('submit', login);
   e.registerForm.addEventListener('submit', register);
   e.signOut.addEventListener('click', () => endSession());
-  e.finishSession.addEventListener('click', () => endSession());
+  e.openWeightModal.addEventListener('click', openWeightSettings);
+  e.closeWeightModal.addEventListener('click', closeWeightSettings);
+  e.weightModal.addEventListener('pointerdown', (event) => { if (event.target === e.weightModal) closeWeightSettings(); });
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !e.weightModal.hidden) closeWeightSettings(); });
   ['pointerdown', 'keydown', 'touchstart'].forEach((name) => document.addEventListener(name, resetIdleTimer, { passive: true }));
   [e.x, e.y, e.w, e.h, e.threshold, e.invert].forEach((el) => el.addEventListener('input', updateRoi));
   e.unit.addEventListener('change', syncUnitUi);
   e.roi.addEventListener('pointerdown', startRoiDrag); e.roi.addEventListener('pointermove', moveRoiDrag); e.roi.addEventListener('pointerup', endRoiDrag); e.roi.addEventListener('pointercancel', endRoiDrag);
   e.manual.addEventListener('input', () => { const entered = +e.manual.value || 0; s.manualWeight = clamp(e.unit.value === 'kg' ? entered * 1000 : entered, 0, 5000); if (s.manualWeight) { s.autoWeight = 0; pill(e.weightPill, 'Manual weight', 'warn'); } renderCurrentWeight(); updateReview(); });
-  e.confirm.addEventListener('click', confirmDeposit); e.clear.addEventListener('click', () => clearScan(true)); e.download.addEventListener('click', downloadCsv);
+  e.confirm.addEventListener('click', confirmDeposit); e.clear.addEventListener('click', () => clearScan(true));
 
   try {
     const saved = JSON.parse(localStorage.getItem('last-bin-roi') || 'null');
@@ -582,7 +584,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderHistory();
 
   db.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT') setTimeout(leaveApp, 0);
+    if (event === 'SIGNED_OUT') { const target = s.exitTarget; setTimeout(() => leaveApp(target), 0); }
     else if (event === 'SIGNED_IN' && !s.session) setTimeout(() => enterApp(session).catch((error) => { console.error(error); toast('Could not load your account.'); }), 0);
   });
 
