@@ -9,6 +9,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   const OBSERVE_MS = 3000;
   const IDLE_MS = 2 * 60 * 1000;
   const REWARD_RATES = { book: 20, bottle: 10, pen: 9 };
+  const REWARD_CATALOG = {
+    a4_notebook: { label: 'A4-size notebook', cost: 40 },
+    pen: { label: 'Pen', cost: 5 },
+    pencil: { label: 'Pencil', cost: 4 },
+    pocket_diary: { label: 'Pocket-size diary', cost: 15 },
+    sketch_pens: { label: 'Sketch pens', cost: 25 },
+    transparent_folder: { label: 'Transparent folder', cost: 15 }
+  };
   const $ = (id) => document.getElementById(id);
 
   const e = {
@@ -25,6 +33,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     video: $('video'), stage: $('stage'), placeholder: $('placeholder'), roi: $('roi'),
     weightModal: $('weight-modal'), openWeightModal: $('open-weight-modal'), closeWeightModal: $('close-weight-modal'),
     rewardsModal: $('rewards-modal'), openRewardsModal: $('open-rewards-modal'), closeRewardsModal: $('close-rewards-modal'),
+    redeemBalance: $('redeem-balance'), lastRedemption: $('last-redemption'), redemptionConfirm: $('redemption-confirm'),
+    redeemConfirmTitle: $('redeem-confirm-title'), redeemConfirmCopy: $('redeem-confirm-copy'),
+    cancelRedemption: $('cancel-redemption'), confirmRedemption: $('confirm-redemption'),
     cameraPill: $('camera-pill'), objectPill: $('object-pill'), objectResult: $('object-result'),
     objectIcon: $('object-icon'), objectOverline: $('object-overline'), objectName: $('object-name'),
     objectHelp: $('object-help'),
@@ -39,12 +50,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   };
 
   const s = {
-    session: null, profile: null, transactions: [], sessionTransactions: [], idleTimer: null, phase: 'scan',
+    session: null, profile: null, transactions: [], redemptions: [], pointsBalance: 0, sessionTransactions: [], idleTimer: null, phase: 'scan',
     stream: null, model: null, running: false, predicting: false, lastPrediction: 0,
     candidate: '', startedAt: 0, elapsed: 0, approved: null, pendingDepositId: null,
     awaitingRemoval: false, removalStartedAt: 0, emptyFrames: 0,
     worker: null, ocrReady: false, ocrBusy: false, lastOcr: 0, ocrReadings: [],
-    autoWeight: 0, manualWeight: 0, exitTarget: 'welcome'
+    autoWeight: 0, manualWeight: 0, selectedReward: '', redeeming: false, exitTarget: 'welcome'
   };
   let roiDrag = null;
 
@@ -167,11 +178,14 @@ window.addEventListener('DOMContentLoaded', async () => {
   function openRewards() {
     if (!s.session) return;
     e.weightModal.hidden = true;
+    cancelRedemption();
+    renderRewards();
     e.rewardsModal.hidden = false;
     e.closeRewardsModal.focus();
   }
 
   function closeRewards() {
+    cancelRedemption();
     e.rewardsModal.hidden = true;
     if (!e.app.hidden) e.openRewardsModal.focus();
   }
@@ -270,7 +284,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     s.session = null;
     s.profile = null;
     s.transactions = [];
+    s.redemptions = [];
+    s.pointsBalance = 0;
     s.sessionTransactions = [];
+    s.selectedReward = '';
+    s.redeeming = false;
     e.accountName.textContent = 'Student';
     e.accountId.textContent = 'UID verified';
     renderHistory();
@@ -283,18 +301,31 @@ window.addEventListener('DOMContentLoaded', async () => {
   async function loadStudentData() {
     const userId = s.session?.user?.id;
     if (!userId) return;
-    const [profileResult, transactionResult] = await Promise.all([
+    const [profileResult, transactionResult, redemptionResult, balanceResult] = await Promise.all([
       db.from('profiles').select('full_name,student_id,department').eq('id', userId).single(),
-      db.from('transactions').select('deposit_id,item_type,item_label,weight_g,confidence,points,status,created_at').order('created_at', { ascending: false }).limit(100)
+      db.from('transactions').select('deposit_id,item_type,item_label,weight_g,confidence,points,status,created_at').order('created_at', { ascending: false }).limit(100),
+      db.from('redemptions').select('redeem_id,reward_item,item_label,points_cost,status,created_at').order('created_at', { ascending: false }).limit(20),
+      db.rpc('get_my_points_balance')
     ]);
     if (profileResult.error) throw profileResult.error;
     if (transactionResult.error) throw transactionResult.error;
+    if (redemptionResult.error) throw redemptionResult.error;
+    if (balanceResult.error) throw balanceResult.error;
     s.profile = profileResult.data;
     s.transactions = transactionResult.data || [];
+    s.redemptions = redemptionResult.data || [];
+    s.pointsBalance = Math.max(0, +(balanceResult.data || 0));
     e.accountName.textContent = s.profile.full_name || 'Student';
     const id = String(s.profile.student_id || '');
     const department = String(s.profile.department || '');
     e.accountId.textContent = id ? `UID ••••${id.slice(-4)}${department ? ` · ${department}` : ''}` : 'UID verified';
+    renderHistory();
+  }
+
+  async function refreshPointBalance() {
+    const { data, error } = await db.rpc('get_my_points_balance');
+    if (error) throw error;
+    s.pointsBalance = Math.max(0, +(data || 0));
     renderHistory();
   }
 
@@ -535,9 +566,77 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  function renderRewards() {
+    const balance = Math.max(0, +s.pointsBalance || 0);
+    e.redeemBalance.textContent = formatPoints(balance);
+    const last = s.redemptions[0];
+    e.lastRedemption.textContent = last
+      ? `Last redeemed: ${last.item_label} · ${formatPoints(last.points_cost)} points · ref ${String(last.redeem_id).slice(-8).toUpperCase()}`
+      : 'Choose a reward below when you have enough points.';
+    document.querySelectorAll('.redeem-option').forEach((button) => {
+      const item = REWARD_CATALOG[button.dataset.reward];
+      if (!item) return;
+      button.disabled = s.redeeming || !s.session || balance < item.cost;
+      button.title = balance < item.cost ? `You need ${formatPoints(item.cost - balance)} more points.` : `Redeem ${item.label} for ${item.cost} points.`;
+    });
+  }
+
+  function chooseReward(rewardItem) {
+    const item = REWARD_CATALOG[rewardItem];
+    const balance = Math.max(0, +s.pointsBalance || 0);
+    if (!s.session || !item || balance < item.cost || s.redeeming) return;
+    s.selectedReward = rewardItem;
+    e.redeemConfirmTitle.textContent = `Redeem ${item.label} for ${item.cost} points?`;
+    e.redeemConfirmCopy.textContent = `Your remaining balance will be ${formatPoints(balance - item.cost)} points. This redemption will be recorded immediately.`;
+    e.redemptionConfirm.hidden = false;
+    e.confirmRedemption.focus();
+  }
+
+  function cancelRedemption() {
+    s.selectedReward = '';
+    e.redemptionConfirm.hidden = true;
+    e.confirmRedemption.disabled = false;
+    e.confirmRedemption.textContent = 'Confirm redemption';
+  }
+
+  async function redeemSelectedReward() {
+    const rewardItem = s.selectedReward;
+    const item = REWARD_CATALOG[rewardItem];
+    if (!s.session || !item || s.redeeming) return;
+    s.redeeming = true;
+    e.confirmRedemption.disabled = true;
+    e.confirmRedemption.textContent = 'Redeeming…';
+    renderRewards();
+    try {
+      const { data, error } = await db.from('redemptions').insert({
+        redeem_id: crypto.randomUUID(),
+        reward_item: rewardItem
+      }).select('redeem_id,reward_item,item_label,points_cost,status,created_at').single();
+      if (error) throw error;
+      s.redemptions.unshift(data);
+      s.redemptions = s.redemptions.slice(0, 20);
+      s.pointsBalance = Math.max(0, s.pointsBalance - (+data.points_cost || item.cost));
+      cancelRedemption();
+      renderHistory();
+      try { await refreshPointBalance(); } catch (balanceError) { console.error(balanceError); }
+      toast(`${data.item_label} redeemed for ${formatPoints(data.points_cost)} points. Reference: ${String(data.redeem_id).slice(-8).toUpperCase()}.`);
+    } catch (error) {
+      console.error(error);
+      const insufficient = /insufficient points/i.test(String(error.message || ''));
+      toast(insufficient ? 'You no longer have enough points for this reward.' : 'Redemption could not be completed. Check the connection and try again.');
+      if (insufficient) {
+        try { await refreshPointBalance(); } catch (balanceError) { console.error(balanceError); }
+      }
+    } finally {
+      s.redeeming = false;
+      e.confirmRedemption.disabled = false;
+      e.confirmRedemption.textContent = 'Confirm redemption';
+      renderRewards();
+    }
+  }
+
   function renderHistory() {
     e.weightLedger.innerHTML = ''; e.accountHistory.innerHTML = '';
-    const lifetimePoints = s.transactions.reduce((sum, transaction) => sum + (+transaction.points || 0), 0);
     const lifetimeWeight = s.transactions.reduce((sum, transaction) => sum + (+transaction.weight_g || 0), 0);
 
     const weightByType = new Map();
@@ -558,9 +657,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 
     e.statItems.textContent = s.transactions.length;
-    e.statPoints.textContent = formatPoints(lifetimePoints);
+    e.statPoints.textContent = formatPoints(s.pointsBalance);
     e.sessionWeight.textContent = displayWeight(lifetimeWeight);
-    e.headerPoints.textContent = formatPoints(lifetimePoints);
+    e.headerPoints.textContent = formatPoints(s.pointsBalance);
+    renderRewards();
   }
 
   async function endSession(message = 'Session finished. Your account is safely signed out.', target = 'welcome') {
@@ -587,6 +687,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   e.openRewardsModal.addEventListener('click', openRewards);
   e.closeRewardsModal.addEventListener('click', closeRewards);
   e.rewardsModal.addEventListener('pointerdown', (event) => { if (event.target === e.rewardsModal) closeRewards(); });
+  document.querySelectorAll('.redeem-option').forEach((button) => button.addEventListener('click', () => chooseReward(button.dataset.reward)));
+  e.cancelRedemption.addEventListener('click', cancelRedemption);
+  e.confirmRedemption.addEventListener('click', redeemSelectedReward);
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     if (!e.weightModal.hidden) closeWeightSettings();

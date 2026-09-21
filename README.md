@@ -9,9 +9,10 @@ The Last Bin is a university-installed exchange-kiosk prototype that combines ca
 3. After sign-in, the fixed full-screen kiosk starts the scanner and automatic weight reader without student controls.
 4. Keep the same category above 85% confidence for three continuous seconds.
 5. The scale display is read automatically. Weight status, manual fallback, and calibration controls open in a centered modal and close by clicking outside it.
-6. Review the approved object, stable weight, and exact proportional reward in the three-step scanner, verification, and deposit flow. The “Points & rewards” popup explains both the earning rates and redemption catalog.
+6. Review the approved object, stable weight, and exact proportional reward in the three-step scanner, verification, and deposit flow. The “Points & rewards” popup shows the available balance, earning rates, and redeemable items.
 7. Confirm the deposit. Supabase stores it only in that student's history, signs the student out, and returns directly to the login screen for the next student.
-8. The kiosk also signs out after two minutes of inactivity, and browser sessions are not persisted across refreshes.
+8. A signed-in student can choose an affordable reward, review the remaining balance, and confirm redemption. Supabase records the redemption and deducts its server-controlled cost.
+9. The kiosk also signs out after two minutes of inactivity, and browser sessions are not persisted across refreshes.
 
 Accepted model groups are bottles/cans, pens/pencils, and books/notebooks/paper. Other model classes are rejected as not exchangeable.
 
@@ -37,6 +38,8 @@ New deposits earn points from their exact recorded weight:
 Points are stored to three decimal places, so 500 g of books earns 10 points and 200 g of pens earns 1.8 points. Existing transaction rewards are preserved when the database column is upgraded.
 
 Students can redeem their balance for an A4-size notebook (40 points), pen (5 points), pencil (4 points), pocket-size diary (15 points), sketch pens (25 points), or transparent folder (15 points).
+
+Redemptions are stored in a separate, private ledger. Row Level Security limits students to their own records, while a database trigger controls item prices, rejects insufficient balances, and serializes simultaneous redemption attempts to prevent double-spending. The browser receives only the student's current available balance and recent redemption references.
 
 ## Prototype boundary
 
